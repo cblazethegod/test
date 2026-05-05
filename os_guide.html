@@ -2490,3 +2490,302 @@ ld -m elf_i386 -T kernel.ld -o kernel.bin kernel_entry.o kernel_main.o vga.o
 <!-- ═══════════════════════════════════════════════════════════════════════════════ -->
 <h1 id="part3" style="page-break-before:always; text-align:center; border:none; font-size:26pt; color:#0d1b2a; margin-top:30%;">Part III<br><span style="font-size:18pt; color:#1565c0;">Interrupts, Devices &amp; Drivers</span></h1>
 
+<!-- ═══════════════════════════════════════════════════════════════════════════════ -->
+<!-- CHAPTER 11: PIT TIMER & PREEMPTIVE MULTITASKING FOUNDATIONS                    -->
+<!-- ═══════════════════════════════════════════════════════════════════════════════ -->
+<h1 id="ch11"><span class="chapter-num">Chapter 11</span><br>PIT Timer &amp; Preemptive Multitasking Foundations</h1>
+<p class="chapter-subtitle">The heartbeat of your OS: programming the 8253/8254 PIT for preemptive scheduling</p>
+
+<h2 id="ch11-1">11.1 The 8253/8254 Programmable Interval Timer</h2>
+<p>The <strong>Programmable Interval Timer (PIT)</strong> is one of the oldest and most fundamental hardware components in the PC architecture. Originally the Intel 8253, later replaced by the compatible 8254, it provides three independent timer channels, each capable of generating precise timing signals. Channel 0 is connected to IRQ0 and is used for system timing, Channel 1 was historically used for DRAM refresh (no longer used on modern systems), and Channel 2 is connected to the PC speaker.</p>
+
+<p>The PIT receives a fixed input frequency of <strong>1.193182 MHz</strong> (1,193,182 Hz). By programming a divisor value, you can generate output frequencies from approximately 18.2 Hz (divisor = 65535) up to the full input frequency (divisor = 1). The formula is simple:</p>
+
+<pre>Output Frequency = Input Frequency / Divisor
+Divisor = Input Frequency / Desired Output Frequency</pre>
+
+<p>For example, to generate a 100 Hz timer interrupt:</p>
+<pre>Divisor = 1,193,182 / 100 = 11,931.82 ≈ 11,932</pre>
+
+<div class="note"><div class="box-title">Why 18.2 Hz?</div>The default PIT configuration after boot produces approximately 18.2 Hz (divisor = 65536, which wraps to 0). This was chosen by IBM for the original PC because it provided a reasonable balance between timer resolution and interrupt overhead. Many BIOS routines and early software relied on this frequency.</div>
+
+<h3>11.1.1 PIT Register Map</h3>
+<table>
+<thead><tr><th>Port</th><th>Name</th><th>Access</th><th>Description</th></tr></thead>
+<tbody>
+<tr><td>0x40</td><td>Channel 0 Data</td><td>R/W</td><td>Timer channel 0 (connected to IRQ0)</td></tr>
+<tr><td>0x41</td><td>Channel 1 Data</td><td>R/W</td><td>Timer channel 1 (DRAM refresh - legacy)</td></tr>
+<tr><td>0x42</td><td>Channel 2 Data</td><td>R/W</td><td>Timer channel 2 (PC speaker)</td></tr>
+<tr><td>0x43</td><td>Command Register</td><td>Write</td><td>Configuration for all channels</td></tr>
+</tbody>
+</table>
+
+<h3>11.1.2 Command Register Format</h3>
+<pre>; Command Byte (written to port 0x43):
+;
+;  Bits: 7   6   5   4   3   2   1   0
+;        +---+---+---+---+---+---+---+---+
+;        | SC1 | SC0 | RW1 | RW0 | M2  | M1  | M0  | BCD |
+;        +---+---+---+---+---+---+---+---+
+;          │   │   │   │   │   │   │   └─ Bit 0: BCD mode (0=binary, 1=BCD)
+;          │   │   │   │   │   │   └──── Bits 1-3: Operating Mode
+;          │   │   │   │   │   │            000 = Mode 0: Interrupt on Terminal Count
+;          │   │   │   │   │   │            001 = Mode 1: Hardware Retriggerable One-Shot
+;          │   │   │   │   │   │            010 = Mode 2: Rate Generator (default)
+;          │   │   │   │   │   │            011 = Mode 3: Square Wave Generator
+;          │   │   │   │   │   │            100 = Mode 4: Software Triggered Strobe
+;          │   │   │   │   │   │            101 = Mode 5: Hardware Triggered Strobe
+;          │   │   │   │   │   └────────── Bits 4-5: Read/Load Mode
+;          │   │   │   │   │                 00 = Latch count command
+;          │   │   │   │   │                 01 = Read/Load LSB only
+;          │   │   │   │   │                 10 = Read/Load MSB only
+;          │   │   │   │   │                 11 = Read/Load LSB then MSB
+;          │   │   │   │   └──────────────── Bits 6-7: Select Channel
+;          │   │   │   │                        00 = Channel 0
+;          │   │   │   │                        01 = Channel 1
+;          │   │   │   │                        10 = Channel 2
+;          │   │   │   │                        11 = Read-back command (8254 only)</pre>
+
+<h2 id="ch11-2">11.2 Programming the PIT for IRQ0</h2>
+<p>To configure the PIT for a standard periodic timer interrupt, we use <strong>Mode 3 (Square Wave Generator)</strong>. This mode produces a symmetric square wave — the output is high for half the period and low for the other half. When the counter reaches zero, it automatically reloads the initial value and continues counting, producing continuous interrupts.</p>
+
+<pre><span class="code-label">PIT_CHANNEL0</span>   <span class="code-directive">equ</span> <span class="code-hex">0x40</span>
+<span class="code-label">PIT_COMMAND</span>    <span class="code-directive">equ</span> <span class="code-hex">0x43</span>
+
+<span class="code-label">PIT_MODE_3</span>     <span class="code-directive">equ</span> <span class="code-hex">0x36</span>    <span class="code-comment">; Channel 0, LSB+MSB, Mode 3, Binary</span>
+<span class="code-label">PIT_FREQUENCY</span>  <span class="code-directive">equ</span> <span class="code-hex">1193182</span>
+
+<span class="code-comment">; ─────────────────────────────────────────────────────────────────────────────</span>
+<span class="code-comment">; pit_init: Initialize PIT to generate interrupts at specified frequency</span>
+<span class="code-comment">; Input: EAX = desired frequency in Hz (e.g., 100 for 100 Hz)</span>
+<span class="code-comment">; ─────────────────────────────────────────────────────────────────────────────</span>
+<span class="code-label">pit_init:</span>
+    <span class="code-instruction">push</span> <span class="code-register">eax</span>
+    <span class="code-instruction">push</span> <span class="code-register">ebx</span>
+    <span class="code-instruction">push</span> <span class="code-register">edx</span>
+
+    <span class="code-comment">; Calculate divisor: divisor = 1193182 / frequency</span>
+    <span class="code-instruction">mov</span> <span class="code-register">ebx</span>, <span class="code-hex">1193182</span>
+    <span class="code-instruction">xor</span> <span class="code-register">edx</span>, <span class="code-register">edx</span>         <span class="code-comment">; Clear EDX for division</span>
+    <span class="code-instruction">div</span> <span class="code-register">eax</span>               <span class="code-comment">; EDX:EAX / EAX → EAX=quotient, EDX=remainder</span>
+    
+    <span class="code-comment">; EAX now contains the divisor value</span>
+    <span class="code-instruction">cmp</span> <span class="code-register">eax</span>, <span class="code-hex">65535</span>
+    <span class="code-instruction">ja</span> <span class="code-label">.clamp_max</span>
+    <span class="code-instruction">test</span> <span class="code-register">eax</span>, <span class="code-register">eax</span>
+    <span class="code-instruction">jz</span> <span class="code-label">.set_max</span>
+    <span class="code-instruction">jmp</span> <span class="code-label">.send_command</span>
+
+<span class="code-label">.clamp_max:</span>
+    <span class="code-instruction">mov</span> <span class="code-register">eax</span>, <span class="code-hex">65535</span>
+    <span class="code-instruction">jmp</span> <span class="code-label">.send_command</span>
+
+<span class="code-label">.set_max:</span>
+    <span class="code-instruction">mov</span> <span class="code-register">eax</span>, <span class="code-hex">65535</span>
+
+<span class="code-label">.send_command:</span>
+    <span class="code-comment">; Send command byte: select channel 0, LSB+MSB, mode 3, binary</span>
+    <span class="code-instruction">mov</span> <span class="code-register">al</span>, <span class="code-label">PIT_MODE_3</span>
+    <span class="code-instruction">out</span> <span class="code-label">PIT_COMMAND</span>, <span class="code-register">al</span>
+
+    <span class="code-comment">; Send divisor: LSB first, then MSB</span>
+    <span class="code-instruction">mov</span> <span class="code-register">eax</span>, <span class="code-register">eax</span>         <span class="code-comment">; Ensure we have the divisor in EAX</span>
+    <span class="code-instruction">out</span> <span class="code-label">PIT_CHANNEL0</span>, <span class="code-register">al</span>   <span class="code-comment">; Send LSB</span>
+    <span class="code-instruction">mov</span> <span class="code-register">al</span>, <span class="code-register">ah</span>           <span class="code-comment">; Move MSB to AL</span>
+    <span class="code-instruction">out</span> <span class="code-label">PIT_CHANNEL0</span>, <span class="code-register">al</span>   <span class="code-comment">; Send MSB</span>
+
+    <span class="code-instruction">pop</span> <span class="code-register">edx</span>
+    <span class="code-instruction">pop</span> <span class="code-register">ebx</span>
+    <span class="code-instruction">pop</span> <span class="code-register">eax</span>
+    <span class="code-instruction">ret</span>
+
+<span class="code-comment">; ─────────────────────────────────────────────────────────────────────────────</span>
+<span class="code-comment">; Convenience function: Set common timer frequencies</span>
+<span class="code-comment">; ─────────────────────────────────────────────────────────────────────────────</span>
+<span class="code-label">pit_set_100hz:</span>
+    <span class="code-instruction">mov</span> <span class="code-register">eax</span>, <span class="code-hex">100</span>
+    <span class="code-instruction">call</span> <span class="code-label">pit_init</span>
+    <span class="code-instruction">ret</span>
+
+<span class="code-label">pit_set_1khz:</span>
+    <span class="code-instruction">mov</span> <span class="code-register">eax</span>, <span class="code-hex">1000</span>
+    <span class="code-instruction">call</span> <span class="code-label">pit_init</span>
+    <span class="code-instruction">ret</span>
+
+<span class="code-label">pit_set_default:</span>
+    <span class="code-instruction">mov</span> <span class="code-register">eax</span>, <span class="code-hex">18</span>
+    <span class="code-instruction">call</span> <span class="code-label">pit_init</span>
+    <span class="code-instruction">ret</span></pre>
+
+<div class="warning"><div class="box-title">Critical Timing Consideration</div>The PIT programming sequence must be exact. After writing the command byte, you must write both bytes of the divisor in order (LSB first, then MSB). If you only need an 8-bit divisor (values 0-255), you still must send both bytes when using the "LSB+MSB" mode. Writing only one byte will leave the PIT in an undefined state.</div>
+
+<h2 id="ch11-3">11.3 The IRQ0 Timer Handler</h2>
+<p>Once the PIT is configured, IRQ0 will fire at the programmed frequency. Your handler must acknowledge the interrupt and perform timekeeping duties.</p>
+
+<pre><span class="code-directive">section</span> .data
+<span class="code-label">timer_ticks:</span>     <span class="code-instruction">dd</span> <span class="code-hex">0</span>           <span class="code-comment">; Total ticks since boot</span>
+<span class="code-label">seconds:</span>       <span class="code-instruction">dd</span> <span class="code-hex">0</span>           <span class="code-comment">; Total seconds since boot</span>
+<span class="code-label">ticks_per_sec:</span> <span class="code-instruction">dd</span> <span class="code-hex">100</span>         <span class="code-comment">; Configured timer frequency</span>
+
+<span class="code-directive">section</span> .text
+<span class="code-comment">; ─────────────────────────────────────────────────────────────────────────────</span>
+<span class="code-comment">; irq0_handler: Timer interrupt handler</span>
+<span class="code-comment">; Called automatically by CPU when IRQ0 fires</span>
+<span class="code-comment">; ─────────────────────────────────────────────────────────────────────────────</span>
+<span class="code-label">irq0_handler:</span>
+    <span class="code-instruction">pusha</span>                     <span class="code-comment">; Save all general-purpose registers</span>
+    
+    <span class="code-comment">; Update tick counter</span>
+    <span class="code-instruction">inc</span> <span class="code-label">timer_ticks</span>
+    
+    <span class="code-comment">; Check if one second has elapsed</span>
+    <span class="code-instruction">mov</span> <span class="code-register">eax</span>, [<span class="code-label">timer_ticks</span>]
+    <span class="code-instruction">mov</span> <span class="code-register">ebx</span>, [<span class="code-label">ticks_per_sec</span>]
+    <span class="code-instruction">cmp</span> <span class="code-register">eax</span>, <span class="code-register">ebx</span>
+    <span class="code-instruction">jb</span> <span class="code-label">.done_counting</span>
+    
+    <span class="code-comment">; One second elapsed</span>
+    <span class="code-instruction">mov</span> <span class="code-label">timer_ticks</span>, <span class="code-hex">0</span>
+    <span class="code-instruction">inc</span> <span class="code-label">seconds</span>
+    
+    <span class="code-comment">; Optional: Call scheduler here for multitasking</span>
+    <span class="code-instruction">call</span> <span class="code-label">scheduler_tick</span>
+
+<span class="code-label">.done_counting:</span>
+    <span class="code-comment">; Send End of Interrupt to PIC</span>
+    <span class="code-instruction">mov</span> <span class="code-register">al</span>, <span class="code-hex">0x20</span>
+    <span class="code-instruction">out</span> <span class="code-hex">0x20</span>, <span class="code-register">al</span>
+    
+    <span class="code-instruction">popa</span>                      <span class="code-comment">; Restore registers</span>
+    <span class="code-instruction">iret</span>                      <span class="code-comment">; Return from interrupt</span>
+
+<span class="code-comment">; ─────────────────────────────────────────────────────────────────────────────</span>
+<span class="code-comment">; scheduler_tick: Called every timer interrupt</span>
+<span class="code-comment">; This is where preemptive multitasking begins</span>
+<span class="code-comment">; ─────────────────────────────────────────────────────────────────────────────</span>
+<span class="code-label">scheduler_tick:</span>
+    <span class="code-comment">; Increment current task's time slice</span>
+    <span class="code-instruction">; Check if time slice expired</span>
+    <span class="code-comment">; If expired, call schedule() to switch tasks</span>
+    <span class="code-instruction">ret</span></pre>
+
+<h2 id="ch11-4">11.4 Scheduler Theory: From Cooperative to Preemptive</h2>
+<p>A <strong>scheduler</strong> is the OS component that decides which task runs next. There are two fundamental approaches:</p>
+
+<h3>11.4.1 Cooperative Multitasking</h3>
+<p>In cooperative multitasking, each task voluntarily yields control back to the scheduler. The task must explicitly call a yield function (like <code>yield()</code>) when it's done with its work. This approach is simple but fragile — a buggy or malicious task that never yields will hang the entire system. Early versions of Windows (3.x) and Mac OS used cooperative multitasking.</p>
+
+<pre>; Cooperative yield in assembly:
+yield:
+    pusha
+    ; Save current task context
+    ; Add current task to ready queue
+    ; Select next task from ready queue
+    ; Restore next task's context
+    popa
+    ret
+    
+; Problem: If a task does this, the system hangs:
+infinite_loop:
+    jmp infinite_loop    ; Never calls yield()!</pre>
+
+<h3>11.4.2 Preemptive Multitasking</h3>
+<p>In preemptive multitasking, the scheduler can interrupt a running task at any time — typically via a hardware timer interrupt. When the timer fires (IRQ0), the CPU automatically saves the task's context on the stack and jumps to the timer handler. The handler can then decide to keep running the current task or switch to a different one. This prevents any single task from monopolizing the CPU.</p>
+
+<pre>; Preemptive flow:
+; 1. Task A is running
+; 2. Timer interrupt fires (IRQ0)
+; 3. CPU pushes Task A's context onto stack
+; 4. irq0_handler executes
+; 5. scheduler_tick() decides to switch tasks
+; 6. Context switch: save Task A, restore Task B
+; 7. IRET resumes execution with Task B's context
+; 8. Task B runs until next timer interrupt</pre>
+
+<h3>11.4.3 Scheduling Algorithms</h3>
+<table>
+<thead><tr><th>Algorithm</th><th>Description</th><th>Pros</th><th>Cons</th></tr></thead>
+<tbody>
+<tr><td><strong>Round Robin</strong></td><td>Each task gets equal time slices in circular order</td><td>Simple, fair, predictable</td><td>Ignores task priority, poor for mixed workloads</td></tr>
+<tr><td><strong>Priority-Based</strong></td><td>Higher-priority tasks run before lower-priority ones</td><td>Responsive for important tasks</td><td>Low-priority tasks may starve</td></tr>
+<tr><td><strong>Multilevel Queue</strong></td><td>Multiple queues with different priorities and time slices</td><td>Good for mixed interactive/batch workloads</td><td>Complex to implement correctly</td></tr>
+<tr><td><strong>Completely Fair Scheduler (CFS)</strong></td><td>Tracks virtual runtime to ensure fairness over time</td><td>Excellent fairness, used in Linux</td><td>Complex, requires floating point or fixed-point math</td></tr>
+</tbody>
+</table>
+
+<h2 id="ch11-5">11.5 Context Switching: The Heart of Multitasking</h2>
+<p>A <strong>context switch</strong> is the process of saving the state of the currently running task and restoring the state of the next task. The "context" includes all CPU registers, the stack pointer, and potentially floating-point state and SIMD registers.</p>
+
+<h3>11.5.1 Task State Structure</h3>
+<pre><span class="code-comment">; Task Control Block (TCB) structure:</span>
+<span class="code-label">TCB:</span>
+    <span class="code-instruction">dd</span> <span class="code-hex">0</span>              <span class="code-comment">; +0x00: Task ID</span>
+    <span class="code-instruction">dd</span> <span class="code-hex">0</span>              <span class="code-comment">; +0x04: State (READY, RUNNING, BLOCKED)</span>
+    <span class="code-instruction">dd</span> <span class="code-hex">0</span>              <span class="code-comment">; +0x08: EIP (instruction pointer)</span>
+    <span class="code-instruction">dd</span> <span class="code-hex">0</span>              <span class="code-comment">; +0x0C: EFLAGS</span>
+    <span class="code-instruction">dd</span> <span class="code-hex">0</span>              <span class="code-comment">; +0x10: EAX</span>
+    <span class="code-instruction">dd</span> <span class="code-hex">0</span>              <span class="code-comment">; +0x14: EBX</span>
+    <span class="code-instruction">dd</span> <span class="code-hex">0</span>              <span class="code-comment">; +0x18: ECX</span>
+    <span class="code-instruction">dd</span> <span class="code-hex">0</span>              <span class="code-comment">; +0x1C: EDX</span>
+    <span class="code-instruction">dd</span> <span class="code-hex">0</span>              <span class="code-comment">; +0x20: ESI</span>
+    <span class="code-instruction">dd</span> <span class="code-hex">0</span>              <span class="code-comment">; +0x24: EDI</span>
+    <span class="code-instruction">dd</span> <span class="code-hex">0</span>              <span class="code-comment">; +0x28: EBP</span>
+    <span class="code-instruction">dd</span> <span class="code-hex">0</span>              <span class="code-comment">; +0x2C: ESP (stack pointer)</span>
+    <span class="code-instruction">dd</span> <span class="code-hex">0</span>              <span class="code-comment">; +0x30: CS (code segment)</span>
+    <span class="code-instruction">dd</span> <span class="code-hex">0</span>              <span class="code-comment">; +0x34: DS (data segment)</span>
+    <span class="code-instruction">dd</span> <span class="code-hex">0</span>              <span class="code-comment">; +0x38: SS (stack segment)</span>
+    <span class="code-instruction">dd</span> <span class="code-hex">0</span>              <span class="code-comment">; +0x3C: Priority</span>
+    <span class="code-instruction">dd</span> <span class="code-hex">0</span>              <span class="code-comment">; +0x40: Time remaining (time slice)</span>
+    <span class="code-instruction">dd</span> <span class="code-hex">0</span>              <span class="code-comment">; +0x44: Next TCB pointer (for linked list)</span>
+    <span class="code-instruction">dd</span> <span class="code-hex">0</span>              <span class="code-comment">; +0x48: Previous TCB pointer</span>
+    <span class="code-comment">; Size: 0x4C bytes (76 bytes)</span></pre>
+
+<h3>11.5.2 The Context Switch Routine</h3>
+<pre><span class="code-comment">; ─────────────────────────────────────────────────────────────────────────────</span>
+<span class="code-comment">; context_switch: Switch from current task to next task</span>
+<span class="code-comment">; Input: ESI = pointer to current task's TCB</span>
+<span class="code-comment">;        EDI = pointer to next task's TCB</span>
+<span class="code-comment">; ─────────────────────────────────────────────────────────────────────────────</span>
+<span class="code-label">context_switch:</span>
+    <span class="code-comment">; ── Save current task context ───────────────────────────────────────────</span>
+    <span class="code-instruction">mov</span> [<span class="code-register">esi</span>+<span class="code-hex">0x10</span>], <span class="code-register">eax</span>   <span class="code-comment">; Save EAX</span>
+    <span class="code-instruction">mov</span> [<span class="code-register">esi</span>+<span class="code-hex">0x14</span>], <span class="code-register">ebx</span>   <span class="code-comment">; Save EBX</span>
+    <span class="code-instruction">mov</span> [<span class="code-register">esi</span>+<span class="code-hex">0x18</span>], <span class="code-register">ecx</span>   <span class="code-comment">; Save ECX</span>
+    <span class="code-instruction">mov</span> [<span class="code-register">esi</span>+<span class="code-hex">0x1C</span>], <span class="code-register">edx</span>   <span class="code-comment">; Save EDX</span>
+    <span class="code-instruction">mov</span> [<span class="code-register">esi</span>+<span class="code-hex">0x20</span>], <span class="code-register">esi</span>   <span class="code-comment">; Save ESI (will be overwritten below)</span>
+    <span class="code-instruction">mov</span> [<span class="code-register">esi</span>+<span class="code-hex">0x24</span>], <span class="code-register">edi</span>   <span class="code-comment">; Save EDI (will be overwritten below)</span>
+    <span class="code-instruction">mov</span> [<span class="code-register">esi</span>+<span class="code-hex">0x28</span>], <span class="code-register">ebp</span>   <span class="code-comment">; Save EBP</span>
+    
+    <span class="code-comment">; Save ESP (current stack pointer)</span>
+    <span class="code-instruction">lea</span> <span class="code-register">eax</span>, [<span class="code-register">esp</span>+<span class="code-hex">4</span>]      <span class="code-comment">; Account for return address on stack</span>
+    <span class="code-instruction">mov</span> [<span class="code-register">esi</span>+<span class="code-hex">0x2C</span>], <span class="code-register">eax</span>   <span class="code-comment">; Save ESP</span>
+    
+    <span class="code-comment">; Save EFLAGS and EIP (they're on the stack from interrupt)</span>
+    <span class="code-instruction">pushf</span>
+    <span class="code-instruction">pop</span> <span class="code-register">eax</span>
+    <span class="code-instruction">mov</span> [<span class="code-register">esi</span>+<span class="code-hex">0x0C</span>], <span class="code-register">eax</span>   <span class="code-comment">; Save EFLAGS</span>
+    
+    <span class="code-comment">; Save segments</span>
+    <span class="code-instruction">mov</span> <span class="code-register">ax</span>, <span class="code-register">ds</span>
+    <span class="code-instruction">mov</span> [<span class="code-register">esi</span>+<span class="code-hex">0x34</span>], <span class="code-register">eax</span>   <span class="code-comment">; Save DS</span>
+    <span class="code-instruction">mov</span> <span class="code-register">ax</span>, <span class="code-register">es</span>
+    <span class="code-instruction">mov</span> [<span class="code-register">esi</span>+<span class="code-hex">0x38</span>], <span class="code-register">eax</span>   <span class="code-comment">; Save ES (using as placeholder)</span>
+    
+    <span class="code-comment">; ── Load next task context ────────────────────────────────────────────────</span>
+    <span class="code-instruction">mov</span> <span class="code-register">eax</span>, [<span class="code-register">edi</span>+<span class="code-hex">0x34</span>]   <span class="code-comment">; Load DS</span>
+    <span class="code-instruction">mov</span> <span class="code-register">ds</span>, <span class="code-register">ax</span>
+    <span class="code-instruction">mov</span> <span class="code-register">eax</span>, [<span class="code-register">edi</span>+<span class="code-hex">0x38</span>]   <span class="code-comment">; Load ES</span>
+    <span class="code-instruction">mov</span> <span class="code-register">es</span>, <span class="code-register">ax</span>
+    
+    <span class="code-instruction">mov</span> <span class="code-register">eax</span>, [<span class="code-register">edi</span>+<span class="code-hex">0x10</span>]   <span class="code-comment">; Restore EAX</span>
+    <span class="code-instruction">mov</span> <span class="code-register">ebx</span>, [<span class="code-register">edi</span>+<span class="code-hex">0x14</span>]   <span class="code-comment">; Restore EBX</span>
+    <span class="code-instruction">mov</span> <span class="code-register">ecx</span>, [<span class="code-register">edi</span>+<span class="code-hex">0x18</span>]   <span class="code-comment">; Restore ECX</span>
+    <span class="code-instruction">mov</span> <span class="code-register">edx</span>, [<span class="code-register">edi</span>+<span class="code-hex">0x1C</span>]   <span class="code-comment">; Restore EDX</span>
+    <span class="code-instruction">mov</span> <span class="code-register">esi</span>, [<span class="code-register">edi</span>+<span class="code-hex">0x20</span>]   <span class="code-comment">; Restore ESI</span>
+    <span class="code-instruction">mov</span> <span class="code-register">edi</span>, [<span class="code-register">edi</span>+<span class="code-hex">0x24</span>]   <span class="code-comment">; Restore EDI</span>
+    <span class="code-instruction">mov</span> <span class="code-register">ebp</span>, [<span class="code-register">edi</span>+<span class="code-hex">0x28</span>]   <span class="code-comment">; Restore EBP</span>
+    <span class="code-instruction">mov</span> <span class="code-register">esp</span>, [<span class="code-register">edi</span>+<span class="code-hex">0x2C</span>]   <span class="code-comment">; Restore ESP (switches stacks!)</span>
+    
+    <span class="code-comment">; Restore EFLAGS</span>
+    <span class="code-instruction">push</span> <span class="code-label">dword</span> [<span class="code-register">edi</span>+<span class="code-hex">0x0C</span>]</span>
+
