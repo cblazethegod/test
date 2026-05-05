@@ -1,0 +1,2492 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Building a 32-Bit OS in Pure Assembly</title>
+<link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/katex@0.16.9/dist/katex.min.css">
+<style>
+/* ─── Reset & Base ─── */
+body { margin: 0; padding: 0; font-family: Georgia, 'Times New Roman', serif; font-size: 10.5pt; line-height: 1.65; color: #1a1a2e; text-align: justify; text-align-last: left; }
+* { box-sizing: border-box; }
+
+/* ─── Page Setup ─── */
+@page { size: letter; margin: 2cm 1.8cm; @top-center { content: string(doctitle); font-size: 9pt; color: #455a64; } @bottom-center { content: counter(page); font-size: 9pt; color: #455a64; } }
+@page :first { margin: 0; @top-center { content: none; } @bottom-center { content: none; } }
+@page cover { @top-center { content: none; } @bottom-center { content: none; } }
+@page toc { @top-center { content: none; } @bottom-center { content: none; } }
+body { string-set: doctitle ""; }
+h1 { string-set: doctitle content(); }
+
+/* ─── Cover ─── */
+.cover { page: cover; width: 215.9mm; height: 279.4mm; margin: 0; position: relative; overflow: hidden; page-break-after: always; background: linear-gradient(135deg, #0d1b2a 0%, #1b2838 50%, #0d1b2a 100%); }
+.cover-accent-top { position: absolute; top: 0; left: 0; width: 100%; height: 8mm; background: linear-gradient(90deg, #00acc1, #1565c0, #00acc1); }
+.cover-accent-bottom { position: absolute; bottom: 0; left: 0; width: 100%; height: 8mm; background: linear-gradient(90deg, #1565c0, #00acc1, #1565c0); }
+.cover-geo1 { position: absolute; top: 30mm; right: 15mm; width: 60mm; height: 60mm; border: 2px solid rgba(0,172,193,0.2); border-radius: 50%; }
+.cover-geo2 { position: absolute; bottom: 40mm; left: 10mm; width: 40mm; height: 40mm; border: 2px solid rgba(21,101,192,0.2); transform: rotate(45deg); }
+.cover-geo3 { position: absolute; top: 80mm; left: 20mm; width: 20mm; height: 20mm; background: rgba(0,172,193,0.08); border-radius: 50%; }
+.cover-content { position: absolute; top: 50%; left: 50%; transform: translate(-50%, -50%); text-align: center; width: 80%; z-index: 1; }
+.cover-title { font-size: 38pt; font-weight: 700; color: #fff; margin-bottom: 8mm; letter-spacing: 1px; font-family: 'Helvetica Neue', Helvetica, Arial, sans-serif; }
+.cover-subtitle { font-size: 18pt; color: #00acc1; margin-bottom: 12mm; font-family: 'Helvetica Neue', Helvetica, Arial, sans-serif; }
+.cover-tagline { font-size: 12pt; color: #b0bec5; margin-bottom: 20mm; font-style: italic; }
+.cover-meta { font-size: 10pt; color: #90a4ae; line-height: 2; }
+.cover-meta span { display: inline-block; margin: 0 10px; }
+
+/* ─── TOC ─── */
+.toc-page { page: toc; }
+.toc-title { font-size: 22pt; font-weight: 700; color: #0d1b2a; text-align: center; margin-bottom: 15mm; font-family: 'Helvetica Neue', Helvetica, Arial, sans-serif; }
+.toc { list-style: none; padding: 0; margin: 0; }
+.toc li { margin-bottom: 3pt; }
+.toc a { color: #1a1a2e; text-decoration: none; display: block; }
+.toc a::after { content: leader('.') target-counter(attr(href url), page); }
+.toc-part { font-weight: 700; font-size: 11pt; color: #1565c0; margin-top: 8pt; font-family: 'Helvetica Neue', Helvetica, Arial, sans-serif; }
+.toc-ch { margin-left: 8pt; font-size: 10pt; }
+.toc-sub { margin-left: 18pt; font-size: 9pt; color: #455a64; }
+
+/* ─── Typography ─── */
+h1 { font-size: 22pt; font-weight: 700; color: #0d1b2a; margin-top: 0; margin-bottom: 10pt; page-break-before: always; font-family: 'Helvetica Neue', Helvetica, Arial, sans-serif; border-bottom: 2px solid #1565c0; padding-bottom: 6pt; }
+h2 { font-size: 15pt; font-weight: 700; color: #1565c0; margin-top: 18pt; margin-bottom: 8pt; font-family: 'Helvetica Neue', Helvetica, Arial, sans-serif; page-break-after: avoid; }
+h3 { font-size: 12pt; font-weight: 700; color: #1e88e5; margin-top: 14pt; margin-bottom: 6pt; font-family: 'Helvetica Neue', Helvetica, Arial, sans-serif; page-break-after: avoid; }
+h4 { font-size: 10.5pt; font-weight: 700; color: #455a64; margin-top: 10pt; margin-bottom: 4pt; font-family: 'Helvetica Neue', Helvetica, Arial, sans-serif; page-break-after: avoid; }
+p { margin-bottom: 8pt; orphans: 2; widows: 2; }
+b, strong { color: #0d1b2a; }
+
+/* ─── Code ─── */
+pre { background: #f5f5f5; border: 1px solid #e0e0e0; border-left: 3px solid #1565c0; padding: 10pt 12pt; font-family: 'Courier New', Courier, monospace; font-size: 8.5pt; line-height: 1.45; overflow-x: auto; white-space: pre-wrap; word-wrap: break-word; max-width: 100%; page-break-inside: avoid; margin: 10pt 0; }
+code { font-family: 'Courier New', Courier, monospace; font-size: 9pt; background: #f5f5f5; padding: 1pt 3pt; border-radius: 2px; word-break: break-word; }
+.code-comment { color: #78909c; font-style: italic; }
+.code-directive { color: #7b1fa2; font-weight: 700; }
+.code-instruction { color: #1565c0; font-weight: 700; }
+.code-register { color: #b71c1c; }
+.code-hex { color: #2e7d32; }
+.code-label { color: #e65100; }
+
+/* ─── Tables ─── */
+table { width: 100%; max-width: 100%; border-collapse: collapse; margin: 10pt 0; font-size: 9.5pt; page-break-inside: avoid; }
+thead { display: table-header-group; }
+th { background: #0d1b2a; color: #fff; font-weight: 700; padding: 6pt 8pt; text-align: left; font-family: 'Helvetica Neue', Helvetica, Arial, sans-serif; }
+td { padding: 5pt 8pt; border-bottom: 1px solid #e0e0e0; vertical-align: top; }
+tr:nth-child(even) { background: #f5f5f5; }
+tr { page-break-inside: avoid; }
+
+/* ─── Info Boxes ─── */
+.note, .warning, .tip, .info { padding: 10pt 12pt; margin: 12pt 0; border-left: 4px solid; page-break-inside: avoid; }
+.note { background: #e3f2fd; border-color: #1565c0; }
+.warning { background: #ffebee; border-color: #b71c1c; }
+.tip { background: #e8f5e9; border-color: #2e7d32; }
+.info { background: #fff3e0; border-color: #f57f17; }
+.box-title { font-weight: 700; margin-bottom: 4pt; font-family: 'Helvetica Neue', Helvetica, Arial, sans-serif; }
+
+/* ─── Lists ─── */
+ul, ol { margin: 8pt 0; padding-left: 20pt; }
+li { margin-bottom: 4pt; }
+
+/* ─── Figures & Captions ─── */
+figure { margin: 12pt 0; text-align: center; page-break-inside: avoid; }
+figcaption { font-size: 9pt; font-style: italic; color: #455a64; margin-top: 6pt; }
+figcaption::before { content: attr(data-label) ": "; font-weight: 700; font-style: normal; }
+
+/* ─── Chapter Opener ─── */
+.chapter-num { font-size: 11pt; font-weight: 700; color: #00acc1; text-transform: uppercase; letter-spacing: 2px; margin-bottom: 4pt; font-family: 'Helvetica Neue', Helvetica, Arial, sans-serif; }
+.chapter-subtitle { font-size: 12pt; font-style: italic; color: #455a64; margin-bottom: 15pt; }
+
+/* ─── Prevent Overflow ─── */
+pre, table, figure, img, svg, blockquote { max-width: 100%; box-sizing: border-box; }
+figure img, figure svg { max-width: 80%; max-height: 40vh; height: auto; }
+a { word-break: break-all; color: #1565c0; }
+.katex-display { overflow-x: auto; }
+
+/* ─── Exercise Boxes ─── */
+.exercise { border: 1px solid #1565c0; padding: 10pt 12pt; margin: 12pt 0; background: #fafafa; page-break-inside: avoid; }
+.exercise-title { font-weight: 700; color: #1565c0; margin-bottom: 6pt; font-family: 'Helvetica Neue', Helvetica, Arial, sans-serif; }
+
+/* ─── Memory Map & Diagrams ─── */
+.mem-map { font-family: 'Courier New', Courier, monospace; font-size: 8pt; line-height: 1.6; background: #f5f5f5; padding: 10pt; border: 1px solid #ddd; margin: 10pt 0; }
+</style>
+</head>
+<body>
+
+<!-- ═══════════════════════════════════════════════════════════════════════════════ -->
+<!-- COVER PAGE                                                                     -->
+<!-- ═══════════════════════════════════════════════════════════════════════════════ -->
+<div class="cover">
+  <div class="cover-accent-top"></div>
+  <div class="cover-accent-bottom"></div>
+  <div class="cover-geo1"></div>
+  <div class="cover-geo2"></div>
+  <div class="cover-geo3"></div>
+  <div class="cover-content">
+    <div class="cover-title">Building a 32-Bit Operating System<br>in Pure Assembly</div>
+    <div class="cover-subtitle">The Complete Foundational Guide</div>
+    <div class="cover-tagline">From Boot Sector to GUI &mdash; Master x86, NASM, and OS Architecture</div>
+    <div class="cover-meta">
+      <span>NASM 2.x</span> &bull; <span>x86-32 (IA-32)</span> &bull; <span>QEMU / Bochs</span><br>
+      <span>Protected Mode</span> &bull; <span>Paging</span> &bull; <span>VGA Graphics</span> &bull; <span>Multitasking</span><br><br>
+      <span style="color:#f57f17;">First Edition &mdash; 2026</span>
+    </div>
+  </div>
+</div>
+
+<!-- ═══════════════════════════════════════════════════════════════════════════════ -->
+<!-- TABLE OF CONTENTS                                                              -->
+<!-- ═══════════════════════════════════════════════════════════════════════════════ -->
+<div class="toc-page">
+  <div class="toc-title">Table of Contents</div>
+  <ul class="toc">
+    <li class="toc-part"><a href="#part1">Part I: Foundations</a></li>
+    <li class="toc-ch"><a href="#ch1">Chapter 1: Introduction to OS Development &amp; The Boot Sector</a></li>
+    <li class="toc-sub"><a href="#ch1-1">1.1 What Is an Operating System?</a> &bull; <a href="#ch1-2">1.2 The Boot Process</a> &bull; <a href="#ch1-3">1.3 Your First Boot Sector</a> &bull; <a href="#ch1-4">1.4 Line-by-Line Analysis</a> &bull; <a href="#ch1-5">1.5 NASM &amp; QEMU Workflow</a></li>
+    <li class="toc-ch"><a href="#ch2">Chapter 2: x86 Assembly from First Principles</a></li>
+    <li class="toc-sub"><a href="#ch2-1">2.1 The x86 Register Architecture</a> &bull; <a href="#ch2-2">2.2 Memory Addressing Modes</a> &bull; <a href="#ch2-3">2.3 The Instruction Set</a> &bull; <a href="#ch2-4">2.4 Flags &amp; Conditionals</a> &bull; <a href="#ch2-5">2.5 Stack Operations</a> &bull; <a href="#ch2-6">2.6 String Instructions</a></li>
+    <li class="toc-ch"><a href="#ch3">Chapter 3: NASM Deep Dive &mdash; Directives, Macros, Advanced Features</a></li>
+    <li class="toc-sub"><a href="#ch3-1">3.1 NASM Syntax Philosophy</a> &bull; <a href="#ch3-2">3.2 Directives Reference</a> &bull; <a href="#ch3-3">3.3 Macros &amp; Conditional Assembly</a> &bull; <a href="#ch3-4">3.4 Multi-File Projects</a> &bull; <a href="#ch3-5">3.5 Debugging with List Files</a></li>
+    <li class="toc-ch"><a href="#ch4">Chapter 4: Real Mode Programming &mdash; Segmentation, BIOS, Memory</a></li>
+    <li class="toc-sub"><a href="#ch4-1">4.1 Real Mode Architecture</a> &bull; <a href="#ch4-2">4.2 Segmentation in Depth</a> &bull; <a href="#ch4-3">4.3 BIOS Interrupts</a> &bull; <a href="#ch4-4">4.4 Writing a Real-Mode Library</a></li>
+    <li class="toc-ch"><a href="#ch5">Chapter 5: The A20 Line &amp; Memory Detection</a></li>
+    <li class="toc-sub"><a href="#ch5-1">5.1 The A20 Problem</a> &bull; <a href="#ch5-2">5.2 Enabling A20</a> &bull; <a href="#ch5-3">5.3 E820 Memory Map</a> &bull; <a href="#ch5-4">5.4 Building a Memory Manager</a></li>
+
+    <li class="toc-part"><a href="#part2">Part II: The Bootloader &amp; Kernel Entry</a></li>
+    <li class="toc-ch"><a href="#ch6">Chapter 6: Disk I/O, CHS/LBA &amp; Two-Stage Bootloaders</a></li>
+    <li class="toc-sub"><a href="#ch6-1">6.1 Disk Geometry</a> &bull; <a href="#ch6-2">6.2 CHS vs LBA</a> &bull; <a href="#ch6-3">6.3 Stage 1 Bootloader</a> &bull; <a href="#ch6-4">6.4 Stage 2 Bootloader</a> &bull; <a href="#ch6-5">6.5 FAT12 Parsing</a></li>
+    <li class="toc-ch"><a href="#ch7">Chapter 7: Protected Mode &mdash; GDT, Descriptors, The Big Switch</a></li>
+    <li class="toc-sub"><a href="#ch7-1">7.1 Why Protected Mode?</a> &bull; <a href="#ch7-2">7.2 The GDT</a> &bull; <a href="#ch7-3">7.3 Segment Descriptors</a> &bull; <a href="#ch7-4">7.4 The Switch</a> &bull; <a href="#ch7-5">7.5 Common Failures</a></li>
+    <li class="toc-ch"><a href="#ch8">Chapter 8: 32-Bit Kernel Foundation &mdash; Linker, Stack, BSS</a></li>
+    <li class="toc-sub"><a href="#ch8-1">8.1 Linker Scripts</a> &bull; <a href="#ch8-2">8.2 Kernel Entry Assembly</a> &bull; <a href="#ch8-3">8.3 Stack Management</a> &bull; <a href="#ch8-4">8.4 BSS Clearing</a> &bull; <a href="#ch8-5">8.5 First Kernel Code</a></li>
+
+    <li class="toc-part"><a href="#part3">Part III: Interrupts, Devices &amp; Drivers</a></li>
+    <li class="toc-ch"><a href="#ch9">Chapter 9: The Interrupt Descriptor Table &mdash; Gates, Exceptions, Handlers</a></li>
+    <li class="toc-sub"><a href="#ch9-1">9.1 IDT Architecture</a> &bull; <a href="#ch9-2">9.2 Gate Types</a> &bull; <a href="#ch9-3">9.3 CPU Exceptions</a> &bull; <a href="#ch9-4">9.4 Installing Handlers</a> &bull; <a href="#ch9-5">9.5 Nested Interrupts</a></li>
+    <li class="toc-ch"><a href="#ch10">Chapter 10: The 8259A PIC &amp; Hardware IRQ Handling</a></li>
+    <li class="toc-sub"><a href="#ch10-1">10.1 PIC Architecture</a> &bull; <a href="#ch10-2">10.2 Remapping</a> &bull; <a href="#ch10-3">10.3 EOI</a> &bull; <a href="#ch10-4">10.4 Cascading</a> &bull; <a href="#ch10-5">10.5 IRQ Handler Template</a></li>
+    <li class="toc-ch"><a href="#ch11">Chapter 11: PIT Timer &amp; Preemptive Multitasking Foundations</a></li>
+    <li class="toc-sub"><a href="#ch11-1">11.1 8253/8254 PIT</a> &bull; <a href="#ch11-2">11.2 Frequency Programming</a> &bull; <a href="#ch11-3">11.3 IRQ0 Handler</a> &bull; <a href="#ch11-4">11.4 Scheduler Theory</a> &bull; <a href="#ch11-5">11.5 Context Switching</a></li>
+    <li class="toc-ch"><a href="#ch12">Chapter 12: Memory Management &amp; Paging</a></li>
+    <li class="toc-sub"><a href="#ch12-1">12.1 Why Paging?</a> &bull; <a href="#ch12-2">12.2 Page Tables</a> &bull; <a href="#ch12-3">12.3 Identity Mapping</a> &bull; <a href="#ch12-4">12.4 Page Fault Handler</a> &bull; <a href="#ch12-5">12.5 Heap Allocation</a></li>
+
+    <li class="toc-part"><a href="#part4">Part IV: Drivers, Graphics &amp; User Space</a></li>
+    <li class="toc-ch"><a href="#ch13">Chapter 13: VGA Graphics &mdash; Text Mode, Mode 13h, VESA</a></li>
+    <li class="toc-sub"><a href="#ch13-1">13.1 VGA Architecture</a> &bull; <a href="#ch13-2">13.2 Text Mode Deep Dive</a> &bull; <a href="#ch13-3">13.3 Mode 13h (320x200x256)</a> &bull; <a href="#ch13-4">13.4 VESA VBE</a> &bull; <a href="#ch13-5">13.5 Drawing Primitives</a> &bull; <a href="#ch13-6">13.6 Double Buffering</a></li>
+    <li class="toc-ch"><a href="#ch14">Chapter 14: PS/2 Keyboard Driver &mdash; Scancodes, Buffers, Keymaps</a></li>
+    <li class="toc-sub"><a href="#ch14-1">14.1 PS/2 Controller</a> &bull; <a href="#ch14-2">14.2 Scancode Set 1</a> &bull; <a href="#ch14-3">14.3 IRQ1 Handler</a> &bull; <a href="#ch14-4">14.4 Ring Buffer</a> &bull; <a href="#ch14-5">14.5 Keymaps &amp; Modifiers</a></li>
+    <li class="toc-ch"><a href="#ch15">Chapter 15: System Calls &amp; Entering User Mode (Ring 3)</a></li>
+    <li class="toc-sub"><a href="#ch15-1">15.1 Privilege Rings</a> &bull; <a href="#ch15-2">15.2 INT 0x80</a> &bull; <a href="#ch15-3">15.3 Syscall Table</a> &bull; <a href="#ch15-4">15.4 IRET to Ring 3</a> &bull; <a href="#ch15-5">15.5 Ring 3 Program</a></li>
+    <li class="toc-ch"><a href="#ch16">Chapter 16: File System Design &mdash; FAT16 from Scratch</a></li>
+    <li class="toc-sub"><a href="#ch16-1">16.1 FAT16 Structure</a> &bull; <a href="#ch16-2">16.2 BPB Parsing</a> &bull; <a href="#ch16-3">16.3 Directory Traversal</a> &bull; <a href="#ch16-4">16.4 File Read/Write</a> &bull; <a href="#ch16-5">16.5 Building Your Own FS</a></li>
+
+    <li class="toc-part"><a href="#part5">Part V: Advanced Topics &amp; Your Own Language</a></li>
+    <li class="toc-ch"><a href="#ch17">Chapter 17: Process Management &mdash; PCB, Scheduling, IPC</a></li>
+    <li class="toc-sub"><a href="#ch17-1">17.1 Process Concept</a> &bull; <a href="#ch17-2">17.2 PCB Design</a> &bull; <a href="#ch17-3">17.3 Scheduling Algorithms</a> &bull; <a href="#ch17-4">17.4 fork() and exec()</a> &bull; <a href="#ch17-5">17.5 IPC Mechanisms</a></li>
+    <li class="toc-ch"><a href="#ch18">Chapter 18: Building a Command Shell</a></li>
+    <li class="toc-sub"><a href="#ch18-1">18.1 Shell Architecture</a> &bull; <a href="#ch18-2">18.2 Command Parsing</a> &bull; <a href="#ch18-3">18.3 Process Spawning</a> &bull; <a href="#ch18-4">18.4 Built-in Commands</a> &bull; <a href="#ch18-5">18.5 Environment Variables</a></li>
+    <li class="toc-ch"><a href="#ch19">Chapter 19: Advanced Graphics &mdash; GUI Framework, Windows, Controls</a></li>
+    <li class="toc-sub"><a href="#ch19-1">19.1 GUI Architecture</a> &bull; <a href="#ch19-2">19.2 Window Manager</a> &bull; <a href="#ch19-3">19.3 Drawing Primitives Library</a> &bull; <a href="#ch19-4">19.4 Widgets &amp; Controls</a> &bull; <a href="#ch19-5">19.5 Event Loop</a> &bull; <a href="#ch19-6">19.6 Desktop Environment</a></li>
+    <li class="toc-ch"><a href="#ch20">Chapter 20: Building Your Own Programming Language</a></li>
+    <li class="toc-sub"><a href="#ch20-1">20.1 Language Design Theory</a> &bull; <a href="#ch20-2">20.2 Lexer in Assembly</a> &bull; <a href="#ch20-3">20.3 Recursive-Descent Parser</a> &bull; <a href="#ch20-4">20.4 Bytecode VM</a> &bull; <a href="#ch20-5">20.5 Runtime &amp; GC</a></li>
+
+    <li class="toc-part"><a href="#part6">Part VI: Appendices</a></li>
+    <li class="toc-ch"><a href="#appa">Appendix A: x86 Instruction Quick Reference</a></li>
+    <li class="toc-ch"><a href="#appb">Appendix B: BIOS Interrupt Reference</a></li>
+    <li class="toc-ch"><a href="#appc">Appendix C: Register &amp; EFLAGS Reference</a></li>
+    <li class="toc-ch"><a href="#appd">Appendix D: Control Registers Reference</a></li>
+    <li class="toc-ch"><a href="#appe">Appendix E: Complete OS Source Code</a></li>
+    <li class="toc-ch"><a href="#appf">Appendix F: Toolchain &amp; Build System</a></li>
+  </ul>
+</div>
+
+<!-- ═══════════════════════════════════════════════════════════════════════════════ -->
+<!-- PART I: FOUNDATIONS                                                            -->
+<!-- ═══════════════════════════════════════════════════════════════════════════════ -->
+<h1 id="part1" style="page-break-before:always; text-align:center; border:none; font-size:26pt; color:#0d1b2a; margin-top:30%;">Part I<br><span style="font-size:18pt; color:#1565c0;">Foundations</span></h1>
+
+<!-- ═══════════════════════════════════════════════════════════════════════════════ -->
+<!-- CHAPTER 1: INTRODUCTION TO OS DEVELOPMENT & THE BOOT SECTOR                    -->
+<!-- ═══════════════════════════════════════════════════════════════════════════════ -->
+<h1 id="ch1"><span class="chapter-num">Chapter 1</span><br>Introduction to OS Development &amp; The Boot Sector</h1>
+<p class="chapter-subtitle">Where every operating system begins: the first 512 bytes of execution</p>
+
+<h2 id="ch1-1">1.1 What Is an Operating System?</h2>
+<p>An <strong>operating system</strong> is the foundational software layer that sits between computer hardware and user applications. Its primary responsibilities include <strong>process management</strong> (deciding which program runs and for how long), <strong>memory management</strong> (allocating and protecting RAM for each process), <strong>device management</strong> (communicating with disks, keyboards, displays, and other peripherals through <strong>device drivers</strong>), <strong>file system management</strong> (organizing persistent data on storage devices), and <strong>providing a user interface</strong> (whether a command-line shell or a graphical windowing system).</p>
+
+<p>When you write a program in C, Python, or any high-level language, you are not directly talking to the hardware. Every <code>printf()</code>, every file open, every memory allocation ultimately translates into a request to the operating system kernel. The kernel is the privileged core that has direct access to hardware. User programs run in a restricted <strong>user mode</strong> (Ring 3 on x86), while the kernel runs in <strong>supervisor mode</strong> (Ring 0). This separation is what prevents a buggy program from crashing the entire machine or corrupting another program's data.</p>
+
+<p>In this guide, we will build a complete 32-bit operating system from absolute scratch. We will start with a single 512-byte sector that the BIOS loads from disk. We will learn x86 assembly language from first principles, not assuming any prior knowledge. We will transition the CPU from 16-bit "real mode" (the state it powers on in) to 32-bit "protected mode," set up memory paging, handle hardware interrupts, write device drivers for keyboard and VGA graphics, implement a file system, build a command shell, create a multitasking scheduler, and finally, construct the foundation for a simple programming language and graphical user interface.</p>
+
+<div class="note"><div class="box-title">Why Assembly?</div>While most modern OS kernels (Linux, Windows, macOS) are written primarily in C, the lowest-level components — the bootloader, context switch code, interrupt handlers, and early initialization — must be written in assembly. Assembly gives us precise control over every CPU register, every memory address, and every instruction. There is no hidden runtime, no standard library, no compiler making decisions for us. This total transparency is essential for OS development.</div>
+
+<h2 id="ch1-2">1.2 The Boot Process: From Power-On to Boot Sector</h2>
+<p>When you press the power button on an x86 PC, a remarkably complex sequence of hardware and software events unfolds. Understanding this sequence is the foundation of OS development.</p>
+
+<h3>1.2.1 The CPU Reset State</h3>
+<p>The CPU's internal reset circuit forces all registers to known "power-on" defaults. The most important of these is the instruction pointer. On the original 8086, the CPU started executing at physical address <code>0xFFFF0</code> (CS = 0xF000, IP = 0xFFF0). On modern x86 CPUs, after various micro-architectural initialization, control eventually transfers to the platform firmware — what we call the <strong>BIOS</strong> (Basic Input/Output System) or, on newer systems, <strong>UEFI</strong> (Unified Extensible Firmware Interface).</p>
+
+<p>The firmware is stored in non-volatile flash memory on the motherboard. Its job is to initialize the hardware to a known working state and then find and load the operating system. This initialization phase is called the <strong>POST</strong> (Power-On Self Test).</p>
+
+<h3>1.2.2 The POST Sequence</h3>
+<p>POST is a systematic hardware verification and initialization sequence. While implementations vary between BIOS vendors (Award, AMI, Phoenix), the general flow is:</p>
+<ol>
+<li><strong>CPU verification:</strong> The BIOS tests internal CPU registers, confirming basic arithmetic and logical operations work correctly.</li>
+<li><strong>Chipset initialization:</strong> The memory controller, I/O controller, and bus bridges are configured.</li>
+<li><strong>RAM detection and test:</strong> The BIOS probes memory slots, determines installed RAM capacity, and writes test patterns to verify integrity.</li>
+<li><strong>Video initialization:</strong> The BIOS scans for a video card, executes its option ROM (which contains its own mini-BIOS), and switches to a text display mode so POST messages can appear.</li>
+<li><strong>Keyboard and peripheral init:</strong> The PS/2 keyboard controller (8042) is reset, the PIT (Programmable Interval Timer) is configured, and the PIC (Programmable Interrupt Controller) is initialized.</li>
+<li><strong>PCI bus enumeration:</strong> Every PCI and PCIe slot is scanned. Devices with option ROMs have those ROMs executed.</li>
+<li><strong>Boot device selection:</strong> The BIOS reads the configured boot priority from CMOS memory and attempts each device in turn.</li>
+</ol>
+
+<h3>1.2.3 How the BIOS Loads Your Boot Sector</h3>
+<p>When the BIOS decides to boot from a device (floppy, hard disk, USB), it performs the following exact steps:</p>
+<ol>
+<li>It reads <strong>exactly 512 bytes</strong> from <strong>Logical Block Address 0</strong> (sector 0, head 0, cylinder 0) of the device. This is always the first sector.</li>
+<li>It loads these 512 bytes into physical memory at address <strong>0x00007C00</strong>.</li>
+<li>It checks the last two bytes of the loaded sector. They must be <strong>0x55</strong> followed by <strong>0xAA</strong> (the "boot signature"). On little-endian x86, this appears as the 16-bit word <code>0xAA55</code>.</li>
+<li>If the signature is valid, the BIOS performs a <strong>far jump</strong> to 0x0000:0x7C00, setting CS:IP = 0x0000:0x7C00, and your code begins executing.</li>
+<li>If the signature is invalid, the BIOS tries the next device in the boot order.</li>
+</ol>
+
+<p>This means your boot sector <strong>must</strong> be exactly 512 bytes, and bytes 510-511 <strong>must</strong> contain the boot signature. This is non-negotiable.</p>
+
+<h3>1.2.4 Memory Layout at Boot Time</h3>
+<p>When your boot sector receives control, the physical memory layout looks like this:</p>
+<div class="mem-map">
+; Physical Address      Contents                           Size
+; ──────────────────────────────────────────────────────────────────
+; 0x00000 - 0x003FF     Interrupt Vector Table (IVT)     1,024 bytes
+; 0x00400 - 0x004FF     BIOS Data Area (BDA)             256 bytes
+; 0x00500 - 0x07BFF     Free conventional memory         ~30 KB
+; 0x07C00 - 0x07DFF     YOUR BOOT SECTOR (loaded here)   512 bytes
+; 0x07E00 - 0x9FFFF     Free conventional memory         ~600 KB
+; 0xA0000 - 0xAFFFF     VGA Graphics Memory (Mode 13h)   64 KB
+; 0xB0000 - 0xB7FFF     Monochrome Text Buffer           32 KB
+; 0xB8000 - 0xBFFFF     Color Text Buffer (80x25)        32 KB
+; 0xC0000 - 0xC7FFF     Video Card ROM                   32 KB
+; 0xC8000 - 0xEFFFF     Expansion ROM / Optional         160 KB
+; 0xF0000 - 0xFFFFF     Motherboard BIOS ROM             64 KB
+; ──────────────────────────────────────────────────────────────────
+; Total addressable in real mode: 1 MB (20 address lines: A0-A19)
+</div>
+
+<p>The <strong>IVT</strong> occupies the first 1 KB of memory. It contains 256 entries, each 4 bytes, for a total of 1024 bytes. Each entry is a far pointer (segment:offset) to an interrupt handler. When the CPU executes <code>INT 0x10</code>, it looks up entry 0x10 in the IVT, finds the address at offset 0x0040, and jumps there. The BIOS has already filled the IVT with pointers to its own handler routines.</p>
+
+<div class="warning"><div class="box-title">Critical Warning</div>The area from 0x00500 to 0x07BFF (just below your boot sector) and from 0x07E00 to 0x9FFFF (just above your boot sector) is free for your use. However, you must be careful not to overwrite the IVT, BDA, or video memory unless you know exactly what you are doing. Setting up your stack pointer to grow down from 0x7C00 is the standard practice, since the stack grows downward and the region below 0x7C00 is free.</div>
+
+<h2 id="ch1-3">1.3 Your First Boot Sector: "Hello, OS World!"</h2>
+<p>We now write our first complete boot sector. This program prints the message "Hello, OS World!" to the screen using BIOS interrupt 0x10 (video services), then halts the CPU. Every single line will be explained in the next section.</p>
+
+<pre>; ═══════════════════════════════════════════════════════════════════════════════
+; boot.asm  —  Hello World Boot Sector
+; Assemble:  nasm -f bin boot.asm -o boot.bin
+; Test:      qemu-system-i386 -drive format=raw,file=boot.bin
+; ═══════════════════════════════════════════════════════════════════════════════
+
+<span class="code-directive">[BITS 16]</span>                   ; Assemble for 16-bit real mode
+<span class="code-directive">[ORG 0x7C00]</span>                ; Code will be loaded at 0x7C00
+
+<span class="code-label">start:</span>
+    <span class="code-instruction">cli</span>                     ; Disable hardware interrupts
+    <span class="code-instruction">xor</span> <span class="code-register">ax</span>, <span class="code-register">ax</span>            ; AX = 0 (fastest way to zero a register)
+    <span class="code-instruction">mov</span> <span class="code-register">ds</span>, <span class="code-register">ax</span>            ; Data Segment = 0x0000
+    <span class="code-instruction">mov</span> <span class="code-register">es</span>, <span class="code-register">ax</span>            ; Extra Segment = 0x0000
+    <span class="code-instruction">mov</span> <span class="code-register">ss</span>, <span class="code-register">ax</span>            ; Stack Segment = 0x0000
+    <span class="code-instruction">mov</span> <span class="code-register">sp</span>, <span class="code-hex">0x7C00</span>        ; Stack Pointer = 0x7C00 (grows downward)
+    <span class="code-instruction">sti</span>                     ; Re-enable interrupts (stack is valid now)
+
+    <span class="code-comment">; ── Print message ────────────────────────────────────────────────────</span>
+    <span class="code-instruction">mov</span> <span class="code-register">si</span>, <span class="code-label">msg</span>           ; SI = pointer to message string
+
+<span class="code-label">.print_loop:</span>
+    <span class="code-instruction">lodsb</span>                   ; AL = [DS:SI], then SI = SI + 1
+    <span class="code-instruction">test</span> <span class="code-register">al</span>, <span class="code-register">al</span>           ; Is AL == 0 (null terminator)?
+    <span class="code-instruction">jz</span> <span class="code-label">.done</span>             ; Yes → jump to .done
+    <span class="code-instruction">mov</span> <span class="code-register">ah</span>, <span class="code-hex">0x0E</span>          ; BIOS function: Teletype Output
+    <span class="code-instruction">mov</span> <span class="code-register">bh</span>, <span class="code-hex">0x00</span>          ; Page number 0
+    <span class="code-instruction">mov</span> <span class="code-register">bl</span>, <span class="code-hex">0x0F</span>          ; Colour: bright white (0x0F) on black
+    <span class="code-instruction">int</span> <span class="code-hex">0x10</span>                ; Call BIOS video interrupt
+    <span class="code-instruction">jmp</span> <span class="code-label">.print_loop</span>       ; Repeat for next character
+
+<span class="code-label">.done:</span>
+    <span class="code-instruction">hlt</span>                     ; Halt the CPU
+    <span class="code-instruction">jmp</span> <span class="code-label">.done</span>             ; If NMI wakes us, halt again (safety)
+
+<span class="code-comment">; ── Data Section ──────────────────────────────────────────────────────</span>
+<span class="code-label">msg:</span>
+    <span class="code-instruction">db</span> <span class="code-hex">'Hello, OS World!'</span>, <span class="code-hex">0x0D</span>, <span class="code-hex">0x0A</span>, <span class="code-hex">0</span>
+    <span class="code-comment">; 0x0D = Carriage Return, 0x0A = Line Feed, 0 = Null terminator</span>
+
+<span class="code-comment">; ── Padding and Boot Signature ────────────────────────────────────────</span>
+<span class="code-instruction">times</span> <span class="code-hex">510</span> - ($ - $$) <span class="code-instruction">db</span> <span class="code-hex">0</span>   ; Pad with zeros to byte 510
+<span class="code-instruction">dw</span> <span class="code-hex">0xAA55</span>                  ; Boot signature at bytes 510-511
+</pre>
+
+<h2 id="ch1-4">1.4 Line-by-Line Explanation</h2>
+<p>Every line of the boot sector is explained here in exhaustive detail. Understanding these fundamentals is absolutely essential before proceeding.</p>
+
+<h4><code>[BITS 16]</code> — Assembler Mode Directive</h4>
+<p>This is not a CPU instruction. It is an <strong>assembler directive</strong> that tells NASM to generate 16-bit machine code. When the CPU first powers on, it starts in <strong>Real Mode</strong>, a compatibility mode dating back to the 8086 processor. In Real Mode, all general-purpose registers are 16 bits wide (AX, BX, CX, DX, etc.), memory addressing uses the segment:offset model, and the CPU can only directly access 1 MB of physical memory. The <code>[BITS 16]</code> directive ensures that NASM encodes instructions with 16-bit operand sizes and addressing modes.</p>
+
+<h4><code>[ORG 0x7C00]</code> — Origin Directive</h4>
+<p>This directive sets the <strong>origin point</strong> for address calculations. NASM uses this value to compute the actual memory addresses of all labels. When you write <code>mov si, msg</code>, NASM must encode the address of <code>msg</code> into the instruction. If <code>[ORG 0x7C00]</code> is set, and <code>msg</code> is 30 bytes after the start of the file, NASM calculates its address as 0x7C00 + 30 = 0x7C1E. Without this directive, NASM would assume the code starts at address 0, and the label would have address 30 (0x001E). When the CPU executes the instruction at 0x7C00, it would try to read from address 0x001E (in the IVT!), which would produce garbage on screen instead of your message.</p>
+
+<h4><code>cli</code> — Clear Interrupt Flag</h4>
+<p>This instruction clears the <strong>Interrupt Flag (IF)</strong> in the EFLAGS register. When IF = 0, <strong>maskable hardware interrupts</strong> are disabled. This means the timer (IRQ0), keyboard (IRQ1), and other hardware devices cannot interrupt the CPU. We disable interrupts because we are about to modify the stack pointer (SS:SP), and if an interrupt occurred between setting SS and setting SP, the CPU would push the return address (FLAGS, CS, IP) onto a stack with an invalid pointer, corrupting memory. Once SS:SP are both valid, we re-enable interrupts with <code>sti</code>.</p>
+
+<h4><code>xor ax, ax</code> — XOR Register with Itself</h4>
+<p>This is the fastest and smallest way to set a register to zero. The XOR of any value with itself is always zero. This instruction encodes to just 2 bytes: <code>31 C0</code>. The alternative, <code>mov ax, 0</code>, encodes to 3 bytes: <code>B8 00 00</code>. This pattern — <code>XOR reg, reg</code> — is used extensively in both hand-written and compiler-generated assembly. It also has the side effect of clearing the Carry Flag (CF) and Overflow Flag (OF), which is sometimes useful.</p>
+
+<h4><code>mov ds, ax</code> — Load Data Segment Register</h4>
+<p>This sets the <strong>Data Segment (DS)</strong> register to 0. Segment registers cannot be loaded directly with immediate values in x86. You cannot write <code>mov ds, 0</code> — the CPU simply does not support that encoding. You must load a general-purpose register first, then move it to the segment register. With DS = 0, any data access like <code>mov al, [si]</code> or <code>lodsb</code> will use physical address 0x00000 + SI. This is correct because our string is at 0x7C00+ (within the boot sector loaded there), and with DS=0 and SI pointing to the correct offset, the physical address is correct.</p>
+
+<h4><code>mov ss, ax / mov sp, 0x7C00</code> — Stack Setup</h4>
+<p>These two instructions set up the stack. <strong>SS:SP</strong> forms the stack pointer. SS = 0x0000, SP = 0x7C00. The x86 stack grows <strong>downward</strong> — every <code>PUSH</code> instruction first decrements SP by the operand size (2 bytes in 16-bit mode), then writes the value. So the first <code>PUSH AX</code> after this setup would write to address 0x7BFE (SP becomes 0x7BFE, then the value is stored). This is safe because the memory from 0x00500 to 0x07BFF is free. The stack can grow down to 0x0500 before it would overwrite the BDA, giving us about 30 KB of stack space — more than enough for a boot sector.</p>
+
+<h4><code>sti</code> — Set Interrupt Flag</h4>
+<p>Re-enables hardware interrupts. Now that our stack is properly configured, interrupts can safely occur. If the timer fires, the CPU will push FLAGS, CS, and IP onto our valid stack and jump to the timer handler.</p>
+
+<h4><code>mov si, msg</code> — Load String Pointer</h4>
+<p>Loads the 16-bit offset of the label <code>msg</code> into the <strong>SI (Source Index)</strong> register. Because of <code>[ORG 0x7C00]</code>, NASM has computed the correct offset. If <code>msg</code> is at file offset 0x0020, SI will be loaded with 0x7C20. The instruction <code>mov si, msg</code> is encoded as a 16-bit immediate move. NASM resolves <code>msg</code> to its absolute address based on the origin.</p>
+
+<h4><code>lodsb</code> — Load String Byte</h4>
+<p>This is one of the most elegant instructions in x86. It performs three operations atomically: AL = byte at [DS:SI], then SI = SI + 1 (if DF=0, which is the default). The entire string-loading loop body is just 4 instructions: <code>lodsb</code>, <code>test al, al</code>, <code>jz .done</code>, and the output code. Without <code>lodsb</code>, you would need: <code>mov al, [si]</code>, <code>inc si</code>, which is two instructions and potentially slower.</p>
+
+<h4><code>test al, al</code> — Test for Zero</h4>
+<p>Performs a bitwise AND of AL with itself, discards the result, and sets the flags. If AL is 0x00 (our null terminator), the <strong>Zero Flag (ZF)</strong> is set to 1. Unlike <code>cmp al, 0</code>, <code>TEST</code> does not require an immediate operand byte, saving space. It also does not modify AL, unlike <code>AND</code>.</p>
+
+<h4><code>jz .done</code> — Jump if Zero</h4>
+<p>Conditional jump that transfers execution to <code>.done</code> if ZF = 1. This happens when we have reached the null byte at the end of the string. The label <code>.done</code> is a <strong>local label</strong> in NASM — the leading dot makes it local to the enclosing non-local label (<code>start</code> in this case). This helps prevent name collisions in large projects.</p>
+
+<h4><code>mov ah, 0x0E</code> — BIOS Function Selection</h4>
+<p>Sets AH to 0x0E, which selects the <strong>Teletype Output</strong> sub-function of BIOS interrupt 0x10. The INT 0x10 handler uses AH to determine which operation to perform. AL contains the character to print, BH the display page, and BL the color attribute (in graphics modes). This function advances the cursor automatically and handles scrolling when the cursor reaches the bottom of the screen.</p>
+
+<h4><code>int 0x10</code> — Software Interrupt</h4>
+<p>Transfers control to the BIOS video interrupt handler. Here's exactly what happens inside the CPU: (1) Push FLAGS onto the stack, (2) Clear IF and TF in FLAGS, (3) Push CS onto the stack, (4) Push IP onto the stack, (5) Look up the handler address from the IVT at address 0x0000 + (0x10 &times; 4) = 0x0040, (6) Load CS:IP from the IVT entry, (7) Begin executing the BIOS handler. When the handler finishes with <code>iret</code>, it pops IP, CS, and FLAGS, returning control to our code.</p>
+
+<h4><code>times 510 - ($ - $$) db 0</code> — Padding Directive</h4>
+<p>This is a NASM-specific directive that fills bytes. <code>$</code> represents the current assembly position, and <code>$$</code> represents the start of the current section (0x7C00 due to ORG). So <code>$ - $$</code> computes how many bytes have been emitted so far. <code>510 - ($ - $$)</code> computes how many bytes remain before byte 510. <code>db 0</code> emits a zero byte. <code>times N db 0</code> repeats this N times. This ensures the boot signature ends up exactly at bytes 510-511 regardless of how much code and data we have.</p>
+
+<h4><code>dw 0xAA55</code> — Boot Signature</h4>
+<p>Emits a 16-bit word. On x86 (little-endian), the low byte (0x55) is stored at the lower address (byte 510), and the high byte (0xAA) is stored at the higher address (byte 511). This matches exactly what the BIOS expects: byte 510 = 0x55, byte 511 = 0xAA.</p>
+
+<h2 id="ch1-5">1.5 NASM, QEMU, and the Development Workflow</h2>
+
+<h3>1.5.1 Installing the Tools</h3>
+<p>You need two essential tools: <strong>NASM</strong> (the Netwide Assembler) and <strong>QEMU</strong> (the Quick EMUlator). Install them as follows:</p>
+
+<pre># Ubuntu / Debian
+sudo apt-get update
+sudo apt-get install nasm qemu-system-x86
+
+# Arch Linux
+sudo pacman -S nasm qemu-full
+
+# macOS (Homebrew)
+brew install nasm qemu
+
+# Windows: download NASM from https://www.nasm.us
+# download QEMU from https://www.qemu.org</pre>
+
+<h3>1.5.2 Assembling with NASM</h3>
+<pre>$ nasm -f bin boot.asm -o boot.bin</pre>
+<p>The <code>-f bin</code> option is absolutely critical. It tells NASM to produce a <strong>flat binary</strong> — raw machine code with no file format headers. Other formats like <code>elf32</code> or <code>win32</code> would add metadata headers that the BIOS does not understand. The BIOS expects pure machine code starting at byte 0. Verify your output:</p>
+<pre>$ ls -la boot.bin
+-rw-r--r-- 1 user user 512 Jan  1 00:00 boot.bin
+
+# Inspect the hex dump
+$ xxd boot.bin | tail -5
+000001f0: 0000 0000 0000 0000 0000 0000 0000 0000  ................
+00000200: 0000 0000 0000 0000 0000 0000 0000 55aa  ..............U.</pre>
+
+<h3>1.5.3 Testing with QEMU</h3>
+<pre># Boot as a hard disk image
+qemu-system-i386 -drive format=raw,file=boot.bin
+
+# Alternative: boot as floppy
+qemu-system-i386 -fda boot.bin
+
+# Useful flags:
+qemu-system-i386 -drive format=raw,file=boot.bin \
+    -monitor stdio          # Interactive QEMU monitor
+    -d int,cpu_reset        # Log interrupts and CPU resets
+    -no-reboot              # Halt instead of reboot on triple fault
+    -m 32M                  # Allocate 32 MB of RAM
+    -vga std                # Standard VGA</pre>
+
+<p>The QEMU monitor (accessible with <code>Ctrl+Alt+2</code>, switch back with <code>Ctrl+Alt+1</code>) provides powerful debugging commands:</p>
+<pre>(qemu) info registers      # Dump all CPU registers
+(qemu) x /16xb 0x7c00     # Examine 16 hex bytes at 0x7C00
+(qemu) xp /10i 0x7c00     # Disassemble 10 instructions
+(qemu) quit                 # Exit QEMU</pre>
+
+<div class="tip"><div class="box-title">Pro Tip</div>Press <code>Ctrl+Alt+G</code> to release the mouse from QEMU's grab. Always use <code>-no-reboot</code> during development — if your code causes a triple fault (three consecutive exceptions), the CPU normally resets, causing an infinite reboot loop. The <code>-no-reboot</code> flag makes QEMU halt instead, letting you examine the state.</div>
+
+<h3>1.5.4 Writing to Real USB (Advanced)</h3>
+<pre># EXTREME DANGER: This destroys data on the target device!
+# Identify your USB drive FIRST:
+lsblk
+# Verify the device path (e.g., /dev/sdb, NOT /dev/sda!)
+
+# Write ONLY the boot sector (first 512 bytes):
+sudo dd if=boot.bin of=/dev/sdb bs=512 count=1
+
+# Safer: create a full floppy image first:
+dd if=/dev/zero of=floppy.img bs=512 count=2880  # 1.44 MB
+dd if=boot.bin of=floppy.img conv=notrunc
+sudo dd if=floppy.img of=/dev/sdb</pre>
+
+<div class="warning"><div class="box-title">DATA DESTRUCTION WARNING</div>Double and triple-check the device path. Writing to your system disk (typically /dev/sda) will make your computer unbootable and destroy all data. Use QEMU until you are absolutely certain.</div>
+
+<div class="exercise"><div class="exercise-title">Chapter 1 Exercises</div>
+<ol>
+<li><strong>Modify the message:</strong> Change the boot sector to print your name and a personal message. Reassemble and test in QEMU.</li>
+<li><strong>Print a number:</strong> Modify the code to print the hex digits 0-F on separate lines. Hint: use a loop with a counter.</li>
+<li><strong>Change colors:</strong> Experiment with different values in BL (the color attribute). Try 0x0A (green), 0x0C (red), 0x1E (yellow on blue).</li>
+<li><strong>Memory map reader:</strong> Write a boot sector that prints the first 16 bytes of memory starting at 0x0000 (the IVT) as hex digits.</li>
+</ol>
+</div>
+
+<!-- ═══════════════════════════════════════════════════════════════════════════════ -->
+<!-- CHAPTER 2: x86 ASSEMBLY FROM FIRST PRINCIPLES                                  -->
+<!-- ═══════════════════════════════════════════════════════════════════════════════ -->
+<h1 id="ch2"><span class="chapter-num">Chapter 2</span><br>x86 Assembly from First Principles</h1>
+<p class="chapter-subtitle">Mastering the language of the CPU: registers, memory, instructions, and flags</p>
+
+<h2 id="ch2-1">2.1 The x86 Register Architecture</h2>
+<p>The 8086 processor, released by Intel in 1978 and the ancestor of every modern x86 CPU, provided 14 programmer-visible registers. Understanding every one of these registers in detail is the single most important foundation for all assembly programming. Every x86 CPU from the 8086 through the modern Core i9 still supports these same registers (with extensions).</p>
+
+<h3>2.1.1 General-Purpose Registers</h3>
+<p>The four general-purpose registers — <strong>AX, BX, CX, DX</strong> — are 16 bits wide in real mode. Each can be accessed as two independent 8-bit halves: the <strong>high byte</strong> (H suffix) and the <strong>low byte</strong> (L suffix).</p>
+
+<table>
+<thead><tr><th>16-bit</th><th>High 8</th><th>Low 8</th><th>Name</th><th>Primary Uses</th></tr></thead>
+<tbody>
+<tr><td>AX</td><td>AH</td><td>AL</td><td>Accumulator</td><td>Arithmetic, I/O operations, BIOS function arguments (AH=function, AL=data)</td></tr>
+<tr><td>BX</td><td>BH</td><td>BL</td><td>Base</td><td>Memory addressing as base pointer [BX+SI], [BX+DI]; BIOS parameter passing</td></tr>
+<tr><td>CX</td><td>CH</td><td>CL</td><td>Counter</td><td>LOOP instruction counter, shift/rotate count (must use CL), string operation repeater</td></tr>
+<tr><td>DX</td><td>DH</td><td>DL</td><td>Data</td><td>I/O port address (IN/OUT), multiply/divide high word, BIOS drive number</td></tr>
+</tbody>
+</table>
+
+<h4>32-Bit Extensions (386+)</h4>
+<p>When Intel introduced the 80386 in 1985, all registers were extended to 32 bits by prefixing with "E" (Extended): <strong>EAX, EBX, ECX, EDX, ESI, EDI, ESP, EBP</strong>. The lower 16 bits remain fully accessible as AX, BX, etc., and the lower bytes as AH/AL, BH/BL, etc. For our OS, we work in 32-bit protected mode, so we primarily use the E-prefixed registers.</p>
+
+<pre>; Register layout for EAX (same pattern applies to EBX, ECX, EDX):
+;
+;  31                              16 15       8 7        0
+;   +--------------------------------+----------+----------+
+;   |        EAX (32 bits)           │    AH    │    AL    │
+;   +--------------------------------+----------+----------+
+;   │              AX (16 bits)                   │
+;
+; Examples:
+mov  eax, 0x12345678     ; EAX = 0x12345678
+mov  al, 0xFF            ; AL = 0xFF → EAX becomes 0x123456FF
+mov  ah, 0xAA            ; AH = 0xAA → EAX becomes 0x1234AAFF
+mov  ax, 0xBEEF          ; AX = 0xBEEF → EAX becomes 0x1234BEEF
+xor  eax, eax            ; EAX = 0x00000000 (clears entire register)
+movzx eax, bl            ; EAX = zero-extended BL (upper 24 bits cleared)
+movsx eax, bl            ; EAX = sign-extended BL (upper 24 bits = bit 7 of BL)</pre>
+
+<h3>2.1.2 Index and Pointer Registers</h3>
+<table>
+<thead><tr><th>16-bit</th><th>32-bit</th><th>Name</th><th>Purpose</th></tr></thead>
+<tbody>
+<tr><td>SI</td><td>ESI</td><td>Source Index</td><td>Source pointer for string operations (LODSB, MOVSB, CMPSB). Points to data being read.</td></tr>
+<tr><td>DI</td><td>EDI</td><td>Destination Index</td><td>Destination pointer for string operations (STOSB, MOVSB, SCASB). Points to data being written.</td></tr>
+<tr><td>SP</td><td>ESP</td><td>Stack Pointer</td><td>Points to the top of the stack (the last pushed item). Decremented by PUSH, incremented by POP.</td></tr>
+<tr><td>BP</td><td>EBP</td><td>Base Pointer</td><td>Frame pointer for stack frames. Used to access function parameters and local variables.</td></tr>
+</tbody>
+</table>
+
+<h3>2.1.3 Segment Registers</h3>
+<p>Segment registers hold the base address for memory segments. In real mode, they are shifted left 4 bits and added to the offset. In protected mode, they contain <strong>selectors</strong> — indices into the GDT.</p>
+<table>
+<thead><tr><th>Register</th><th>Name</th><th>Default Use</th></tr></thead>
+<tbody>
+<tr><td>CS</td><td>Code Segment</td><td>Segment containing currently executing code. Changed by JMP, CALL, RET, INT, IRET.</td></tr>
+<tr><td>DS</td><td>Data Segment</td><td>Default segment for data accesses [offset] unless overridden.</td></tr>
+<tr><td>ES</td><td>Extra Segment</td><td>Second data segment. Used by string operations as the destination segment [ES:DI].</td></tr>
+<tr><td>SS</td><td>Stack Segment</td><td>Segment containing the stack. All PUSH/POP/CALL/RET use [SS:SP] or [SS:BP].</td></tr>
+<tr><td>FS</td><td>F Segment</td><td>Additional segment (386+). Windows uses FS:[0] for the Thread Environment Block (TEB).</td></tr>
+<tr><td>GS</td><td>G Segment</td><td>Additional segment (386+). Linux uses GS for per-CPU data in 64-bit mode.</td></tr>
+</tbody>
+</table>
+
+<h3>2.1.4 The Instruction Pointer and Flags</h3>
+<p><strong>IP / EIP:</strong> The Instruction Pointer holds the offset of the next instruction to execute within the code segment (CS:IP or CS:EIP). You cannot directly modify IP with a <code>MOV</code> instruction. It changes automatically as instructions execute, and is modified by control flow instructions (JMP, CALL, RET, INT, IRET, conditional jumps). The only way to indirectly set IP is through these control flow instructions or by manually manipulating the stack and executing <code>RET</code> or <code>IRET</code>.</p>
+
+<p><strong>FLAGS / EFLAGS:</strong> A 32-bit register containing status and control bits. Individual flags are used for conditional branching, interrupt control, and CPU operation modes. We will explore each flag in Section 2.4.</p>
+
+<h2 id="ch2-2">2.2 Memory Addressing Modes</h2>
+<p>x86 provides extraordinary flexibility in how memory operands are specified. Understanding every addressing mode is essential for efficient assembly programming.</p>
+
+<h3>2.2.1 Direct Addressing</h3>
+<pre>mov  ax, [0x7C00]          ; Load 16-bit word from DS:0x7C00
+mov  al, [my_variable]     ; Load byte from address of my_variable
+mov  [es:0xB8000], ax      ; Store to ES:0xB8000 (VGA memory, with segment override)</pre>
+
+<h3>2.2.2 Register Indirect Addressing</h3>
+<pre>mov  ax, [bx]              ; Load from DS:BX
+mov  [si], al              ; Store AL to DS:SI
+mov  ax, [ebp]             ; Load from SS:EBP (BP/EBP default to SS!)
+mov  ax, [esp]             ; Load from SS:ESP</pre>
+
+<h3>2.2.3 Based Addressing</h3>
+<pre>mov  ax, [bx + 4]          ; Load from DS:BX+4
+mov  ax, [bp - 8]          ; Load from SS:BP-8 (local variable access)
+mov  al, [esi + 10]        ; Load from DS:ESI+10</pre>
+
+<h3>2.2.4 Indexed Addressing</h3>
+<pre>mov  ax, [si + di]         ; Invalid! Cannot combine two index registers this way
+mov  ax, [bx + si]         ; Valid: base + index
+mov  ax, [bx + di]         ; Valid: base + index
+mov  ax, [bp + si]         ; Valid: base + index (defaults to SS)
+mov  ax, [bp + di]         ; Valid: base + index (defaults to SS)</pre>
+
+<h3>2.2.5 Based-Indexed with Displacement</h3>
+<pre>; Most complex addressing mode - base + index + constant offset
+mov  ax, [bx + si + 4]     ; DS:BX+SI+4
+mov  ax, [bp + di - 8]     ; SS:BP+DI-8
+; This is how C compilers access struct members and array elements</pre>
+
+<h3>2.2.6 Scaled Indexed Addressing (386+ Only)</h3>
+<pre>; [base + index*scale + displacement] - 32-bit only
+mov  eax, [ebx + esi*4]        ; DS:EBX + ESI*4 (perfect for 32-bit arrays)
+mov  eax, [array + ecx*8 + 4]  ; DS:array + ECX*8 + 4
+; Scale can be 1, 2, 4, or 8 only</pre>
+
+<div class="note"><div class="box-title">Addressing Mode Encoding</div>Not all combinations are valid. The 16-bit addressing modes are severely limited: you can only use BX or BP as the base, and SI or DI as the index. BX and BP cannot both appear, nor can SI and DI both appear. In 32-bit mode, any general-purpose register except ESP can be the index, and any register can be the base.</div>
+
+<h2 id="ch2-3">2.3 The Instruction Set: A Comprehensive Reference</h2>
+
+<h3>2.3.1 Data Transfer Instructions</h3>
+<pre><b>MOV dst, src</b>        — Move (copy) src to dst. Does NOT affect flags.
+                     Forms: reg↔reg, reg↔mem, mem↔reg, imm→reg, imm→mem
+                     Cannot: mem↔mem directly, imm→seg, seg→seg
+
+  mov  ax, bx          ; AX = BX
+  mov  [0x1000], al    ; Store AL to DS:0x1000
+  mov  dx, 0x3D4       ; DX = 0x3D4 (immediate to register)
+  mov  eax, cr3        ; Read control register (privileged)
+  mov  cr3, eax        ; Write control register (privileged)
+
+<b>MOVZX dst, src</b>      — Move with Zero-Extend. 386+ only.
+                     Copies smaller src to larger dst, zeroing upper bits.
+  movzx eax, al        ; EAX = 000000XX (AL zero-extended to 32 bits)
+  movzx eax, word [x]  ; EAX = 0000XXXX (16-bit word zero-extended)
+
+<b>MOVSX dst, src</b>      — Move with Sign-Extend. 386+ only.
+                     Copies smaller src to larger dst, replicating sign bit.
+  movsx eax, al        ; If AL=0x80, EAX=0xFFFFFF80 (negative preserved)
+  movsx eax, bl        ; If BL=0x7F, EAX=0x0000007F (positive preserved)
+
+<b>XCHG dst, src</b>       — Exchange. Swaps two values atomically.
+  xchg ax, bx          ; Swap AX and BX
+  xchg eax, [mutex]    ; Atomic swap (has implicit LOCK prefix with memory)
+
+<b>LEA dst, src</b>        — Load Effective Address. Computes address, does NOT access memory.
+  lea  eax, [ebx+ecx*4+8]  ; EAX = EBX + ECX*4 + 8 (faster than ADD+SHL+ADD)
+  lea  esi, [my_array]     ; ESI = address of my_array (same as MOV for simple labels)
+
+<b>PUSH src</b>            — Push onto stack. ESP = ESP - 4 (32-bit) or -2 (16-bit), then store.
+  push ax              ; ESP = ESP - 2, [SS:ESP] = AX
+  push eax             ; ESP = ESP - 4, [SS:ESP] = EAX
+  pushfd               ; Push EFLAGS register
+  push 0x7C00          ; Push immediate value
+
+<b>POP dst</b>             — Pop from stack. Load from [SS:ESP], then ESP = ESP + size.
+  pop  ax              ; AX = [SS:ESP], ESP = ESP + 2
+  pop  eax             ; EAX = [SS:ESP], ESP = ESP + 4
+  popfd                ; Restore EFLAGS from stack
+
+<b>PUSHA / POPA</b>        — Push/Pop All (16-bit). Pushes AX,CX,DX,BX,SP,BP,SI,DI.
+<b>PUSHAD / POPAD</b>      — Push/Pop All (32-bit). Pushes EAX,ECX,EDX,EBX,ESP,EBP,ESI,EDI.</pre>
+
+<h3>2.3.2 Arithmetic Instructions</h3>
+<pre><b>ADD dst, src</b>        — dst = dst + src. Sets CF, ZF, SF, OF, PF, AF.
+  add  ax, 5           ; AX = AX + 5
+  add  [counter], byte 1  ; Increment byte at [counter]
+
+<b>ADC dst, src</b>        — Add with Carry. dst = dst + src + CF.
+  adc  eax, ebx        ; Used for multi-precision arithmetic (e.g., 64-bit addition)
+
+<b>SUB dst, src</b>        — dst = dst - src. Sets flags (CF=borrow).
+  sub  sp, 16          ; Allocate 16 bytes on stack
+  sub  eax, [total]    ; EAX = EAX - value at [total]
+
+<b>SBB dst, src</b>        — Subtract with Borrow. dst = dst - src - CF.
+  sbb  edx, ecx        ; Used for multi-precision subtraction
+
+<b>INC dst</b>             — Increment by 1. Sets all flags EXCEPT CF.
+  inc  eax             ; EAX = EAX + 1 (CF preserved - useful in loops using carry)
+
+<b>DEC dst</b>             — Decrement by 1. Sets all flags EXCEPT CF.
+  dec  ecx             ; ECX = ECX - 1
+
+<b>NEG dst</b>             — Negate (two's complement). dst = 0 - dst.
+  neg  eax             ; EAX = -EAX
+
+<b>CMP dst, src</b>        — Compare. Computes dst - src, discards result, sets flags.
+  cmp  ax, 10          ; Sets ZF if AX==10, sets CF if AX&lt;10 (unsigned)
+  cmp  eax, [limit]    ; Compare EAX with memory value
+
+<b>MUL src</b>             — Unsigned multiply.
+  mul  bl              ; AX = AL * BL (8-bit)
+  mul  bx              ; DX:AX = AX * BX (16-bit, result in two registers)
+  mul  ebx             ; EDX:EAX = EAX * EBX (32-bit)
+
+<b>IMUL src</b>            — Signed multiply. Same forms as MUL.
+  imul ebx             ; EDX:EAX = EAX * EBX (signed)
+  imul eax, ebx, 10    ; EAX = EBX * 10 (3-operand form, 386+)
+
+<b>DIV src</b>             — Unsigned divide.
+  div  bl              ; AL = AX / BL (quotient), AH = AX % BL (remainder)
+  div  bx              ; AX = DX:AX / BX, DX = DX:AX % BX
+  div  ebx             ; EAX = EDX:EAX / EBX, EDX = EDX:EAX % EBX
+
+<b>IDIV src</b>            — Signed divide. Same form as DIV.</pre>
+
+<h3>2.3.3 Logical and Bitwise Instructions</h3>
+<pre><b>AND dst, src</b>        — Bitwise AND. dst = dst &amp; src. Clears CF, OF.
+  and  al, 0x0F        ; Mask off upper 4 bits (isolate hex digit)
+  and  eax, 0xFFFFF000 ; Mask to 4KB page boundary
+
+<b>OR dst, src</b>         — Bitwise OR. dst = dst | src. Sets individual bits.
+  or   al, 0x20        ; Set bit 5
+  or   eax, 0x80000000 ; Set PG bit in CR0
+
+<b>XOR dst, src</b>        — Bitwise XOR. dst = dst ^ src. Clears CF, OF.
+  xor  eax, eax        ; Zero register (2 bytes, faster than MOV EAX,0)
+  xor  eax, 0xFFFFFFFF ; Bitwise NOT (one's complement)
+
+<b>NOT dst</b>             — Bitwise NOT. dst = ~dst. Does NOT affect flags.
+  not  eax             ; Flip all 32 bits
+
+<b>TEST dst, src</b>       — AND but discard result. Sets flags only.
+  test al, al          ; ZF=1 if AL==0 (used before JZ/JNZ)
+  test eax, 0x80000000 ; SF=1 if bit 31 is set
+
+<b>SHL dst, count</b>      — Shift Left Logical. MSB goes to CF, LSB becomes 0.
+  shl  ax, 1           ; AX = AX * 2, CF = old bit 15
+  shl  eax, cl         ; EAX shifted left by CL bits
+
+<b>SHR dst, count</b>      — Shift Right Logical. LSB goes to CF, MSB becomes 0.
+  shr  ax, 1           ; AX = AX / 2 (unsigned)
+
+<b>SAR dst, count</b>      — Shift Arithmetic Right. LSB to CF, MSB replicated.
+  sar  ax, 1           ; AX = AX / 2 (signed, preserves sign)
+
+<b>ROL/ROR dst, count</b>  — Rotate Left/Right. Bits wrap around.
+  rol  al, 1           ; Rotate left by 1 (old MSB becomes new LSB and CF)
+
+<b>BT/BTS/BTR/BTC</b>      — Bit Test/Test-and-Set/Test-and-Reset/Test-and-Complement. 386+.
+  bt   eax, 5          ; CF = bit 5 of EAX
+  bts  eax, 5          ; CF = bit 5, then set bit 5</pre>
+
+<h3>2.3.4 Control Flow Instructions</h3>
+<pre><b>JMP target</b>          — Unconditional jump. Near, short, or far.
+  jmp  .label          ; Short/near jump to label
+  jmp  0x08:0x100000   ; Far jump: new CS=0x08, new EIP=0x100000
+
+<b>JE/JZ label</b>         — Jump if Equal / Zero. ZF=1.
+<b>JNE/JNZ label</b>       — Jump if Not Equal / Not Zero. ZF=0.
+<b>JG/JNLE label</b>       — Jump if Greater (signed). ZF=0 and SF=OF.
+<b>JGE/JNL label</b>       — Jump if Greater or Equal (signed). SF=OF.
+<b>JL/JNGE label</b>       — Jump if Less (signed). SF≠OF.
+<b>JLE/JNG label</b>       — Jump if Less or Equal (signed). ZF=1 or SF≠OF.
+<b>JA/JNBE label</b>       — Jump if Above (unsigned). CF=0 and ZF=0.
+<b>JAE/JNB label</b>       — Jump if Above or Equal (unsigned). CF=0.
+<b>JB/JC/JNAE label</b>    — Jump if Below / Carry (unsigned). CF=1.
+<b>JBE/JNA label</b>       — Jump if Below or Equal (unsigned). CF=1 or ZF=1.
+<b>JO/JNO, JS/JNS, JP/JNP</b> — Jump on Overflow, Sign, Parity.
+<b>JCXZ label</b>          — Jump if CX=0. <b>JECXZ label</b> — Jump if ECX=0 (386+).
+
+<b>CALL target</b>         — Call subroutine. Pushes return address, then jumps.
+  call print_string    ; Push IP, jump to print_string
+  call eax             ; Indirect call through register
+  call [func_table]    ; Indirect call through memory
+
+<b>RET [n]</b>             — Return from subroutine. Pops return address into IP.
+  ret                  ; Simple return
+  ret  8               ; Return and add 8 to SP (discard 8 bytes of parameters)
+
+<b>INT n</b>               — Software interrupt. Pushes FLAGS, CS, IP; jumps to IDT[n].
+  int  0x10            ; BIOS video interrupt
+  int  0x80            ; Linux system call (we'll implement our own)
+
+<b>IRET</b>                — Interrupt Return. Pops IP, CS, FLAGS. Used by all interrupt handlers.
+
+<b>LOOP label</b>          — Decrement ECX (or CX), jump if not zero.
+  mov  ecx, 10
+.next:
+  ; ... body ...
+  loop .next           ; ECX--, jump if ECX != 0
+
+<b>LOOPE/LOOPZ label</b>   — Loop while Equal/Zero. ECX--, jump if ECX≠0 and ZF=1.
+<b>LOOPNE/LOOPNZ label</b> — Loop while Not Equal/Not Zero. ECX--, jump if ECX≠0 and ZF=0.
+
+<b>CALL/RET using the stack:</b>
+  ; These are equivalent:
+  call some_func       ; Push return address, jump
+  ; ...
+  some_func:
+      ; ... do work ...
+      ret              ; Pop return address, jump back
+
+  ; Manual equivalent:
+  push .return_here
+  jmp  some_func
+.return_here:
+  ; ...
+  some_func:
+      ; ... do work ...
+      pop  eax         ; Get return address
+  jmp  eax           ; Jump to it</pre>
+
+<h2 id="ch2-4">2.4 The EFLAGS Register and Conditional Logic</h2>
+
+<h3>2.4.1 Individual Flag Descriptions</h3>
+<table>
+<thead><tr><th>Bit</th><th>Symbol</th><th>Name</th><th>Description</th></tr></thead>
+<tbody>
+<tr><td>0</td><td>CF</td><td>Carry Flag</td><td>Set when unsigned arithmetic overflows (result &gt; max) or a borrow occurs in subtraction. Used by ADC, SBB, conditional jumps.</td></tr>
+<tr><td>2</td><td>PF</td><td>Parity Flag</td><td>Set if the result has an even number of 1 bits in the low byte. Rarely used in modern code.</td></tr>
+<tr><td>4</td><td>AF</td><td>Auxiliary Carry</td><td>Set if there is a carry/borrow between bits 3 and 4 (BCD arithmetic). Used by AAA, DAA.</td></tr>
+<tr><td>6</td><td>ZF</td><td>Zero Flag</td><td>Set if the result is zero. The most commonly tested flag. CMP, TEST, AND, SUB all set ZF.</td></tr>
+<tr><td>7</td><td>SF</td><td>Sign Flag</td><td>Set equal to the most significant bit of the result (bit 15 for 16-bit, bit 31 for 32-bit). Indicates negative in signed arithmetic.</td></tr>
+<tr><td>8</td><td>TF</td><td>Trap Flag</td><td>When set, the CPU generates a debug exception (#DB) after every instruction. Used by debuggers for single-stepping.</td></tr>
+<tr><td>9</td><td>IF</td><td>Interrupt Flag</td><td>When set, maskable hardware interrupts (IRQs) are enabled. Cleared by CLI, set by STI.</td></tr>
+<tr><td>10</td><td>DF</td><td>Direction Flag</td><td>Controls string operations. DF=0 (CLD): SI/DI increment. DF=1 (STD): SI/DI decrement.</td></tr>
+<tr><td>11</td><td>OF</td><td>Overflow Flag</td><td>Set when signed arithmetic overflows (result exceeds signed range). Distinct from CF.</td></tr>
+<tr><td>12-13</td><td>IOPL</td><td>I/O Privilege</td><td>Two-bit field (0-3). Determines minimum privilege level for I/O instructions. Ring 0 only can modify.</td></tr>
+<tr><td>14</td><td>NT</td><td>Nested Task</td><td>Controls hardware task chaining. Almost never used in modern OSes.</td></tr>
+<tr><td>16</td><td>RF</td><td>Resume Flag</td><td>Temporarily disables debug exceptions to allow continuation after a debug trap.</td></tr>
+<tr><td>17</td><td>VM</td><td>Virtual 8086</td><td>Enables virtual 8086 mode when set in protected mode.</td></tr>
+<tr><td>18</td><td>AC</td><td>Alignment Check</td><td>When set with CR0.AM=1, generates #AC on unaligned memory access at CPL=3.</td></tr>
+<tr><td>21</td><td>ID</td><td>ID Flag</td><td>If software can toggle this bit, CPUID instruction is supported.</td></tr>
+</tbody>
+</table>
+
+<h3>2.4.2 How CMP Sets the Flags</h3>
+<p>The <code>CMP</code> instruction is the foundation of all conditional logic. It performs subtraction (dst - src) but discards the result, keeping only flags. Here is exactly how to interpret the flags after <code>CMP eax, ebx</code>:</p>
+<table>
+<thead><tr><th>Condition</th><th>Signed</th><th>Unsigned</th></tr></thead>
+<tbody>
+<tr><td>EAX == EBX</td><td>ZF=1</td><td>ZF=1</td></tr>
+<tr><td>EAX != EBX</td><td>ZF=0</td><td>ZF=0</td></tr>
+<tr><td>EAX &lt; EBX</td><td>SF≠OF</td><td>CF=1</td></tr>
+<tr><td>EAX &lt;= EBX</td><td>ZF=1 or SF≠OF</td><td>CF=1 or ZF=1</td></tr>
+<tr><td>EAX &gt; EBX</td><td>ZF=0 and SF=OF</td><td>CF=0 and ZF=0</td></tr>
+<tr><td>EAX &gt;= EBX</td><td>SF=OF</td><td>CF=0</td></tr>
+</tbody>
+</table>
+
+<h2 id="ch2-5">2.5 Stack Operations in Depth</h2>
+<p>The stack is the most important data structure in low-level programming. It is used for function calls, local variables, parameter passing, interrupt handling, and temporary storage.</p>
+
+<h3>2.5.1 Stack Mechanics</h3>
+<pre>; The stack grows DOWNWARD in memory. SS:SP points to the last pushed item.
+; On 32-bit: PUSH decrements ESP by 4, stores 4 bytes.
+; On 16-bit: PUSH decrements SP by 2, stores 2 bytes.
+
+; Initial state: ESP = 0x90000
+push  eax        ; ESP = 0x8FFFC, [0x8FFFC] = EAX
+push  ebx        ; ESP = 0x8FFF8, [0x8FFF8] = EBX
+push  ecx        ; ESP = 0x8FFF4, [0x8FFF4] = ECX
+
+pop   edx        ; EDX = ECX, ESP = 0x8FFF8
+pop   eax        ; EAX = EBX, ESP = 0x8FFFC
+
+; Stack frame setup (standard function prologue):
+push  ebp        ; Save caller's frame pointer
+mov   ebp, esp   ; Set up new frame pointer
+sub   esp, 16    ; Allocate 16 bytes of local variables
+
+; Access local variables (negative offsets from EBP):
+mov   [ebp - 4], eax    ; local_var_1 = EAX
+mov   ebx, [ebp - 8]    ; EBX = local_var_2
+
+; Access parameters (positive offsets from EBP, +4 is return address):
+mov   eax, [ebp + 8]    ; First parameter
+mov   ebx, [ebp + 12]   ; Second parameter
+
+; Function epilogue:
+mov   esp, ebp   ; Deallocate locals
+pop   ebp        ; Restore caller's frame pointer
+ret              ; Return</pre>
+
+<h2 id="ch2-6">2.6 String Instructions</h2>
+<p>String instructions are among the most powerful and efficient in x86. They operate on sequences of bytes, words, or doublewords, automatically advancing pointers. They are used for memory copying, zeroing, comparing, and scanning.</p>
+
+<pre>; All string instructions use:
+;   DS:SI (or DS:ESI) as source
+;   ES:DI (or ES:EDI) as destination
+;   Direction Flag (DF) controls increment (DF=0) or decrement (DF=1)
+
+<b>CLD</b>                    ; Clear Direction Flag: SI/DI increment after each operation
+<b>STD</b>                    ; Set Direction Flag: SI/DI decrement after each operation
+
+<b>MOVSB / MOVSW / MOVSD</b>  ; Move string byte/word/dword
+; [ES:DI] = [DS:SI], then SI+=size, DI+=size
+rep movsd              ; Copy ECX dwords from DS:ESI to ES:EDI
+; (Used for fast memory copy)
+
+<b>STOSB / STOSW / STOSD</b>  ; Store string: [ES:DI] = AL/AX/EAX, advance DI
+cld
+xor   eax, eax         ; EAX = 0
+mov   ecx, 1024        ; 1024 dwords = 4096 bytes
+rep   stosd            ; Zero 4096 bytes starting at ES:EDI
+; (Fastest way to zero memory)
+
+<b>LODSB / LODSW / LODSD</b>  ; Load string: AL/AX/EAX = [DS:SI], advance SI
+; Usually used inside loops, not with REP
+
+<b>CMPSB / CMPSW / CMPSD</b>  ; Compare strings: [DS:SI] - [ES:DI], advance both
+repe cmpsb             ; Compare bytes while equal (ZF=1) and ECX≠0
+; (Implements memcmp)
+
+<b>SCASB / SCASW / SCASD</b>  ; Scan string: AL/AX/EAX - [ES:DI], advance DI
+repne scasb            ; Scan for byte AL while not equal (ZF=0) and ECX≠0
+; (Implements strchr / strlen)</pre>
+
+<div class="exercise"><div class="exercise-title">Chapter 2 Exercises</div>
+<ol>
+<li><strong>Register exploration:</strong> Write a program that demonstrates all 8-, 16-, and 32-bit combinations of EAX by loading 0x12345678 and then modifying AL, AH, and AX individually. Print each result in hexadecimal.</li>
+<li><strong>Memory copy:</strong> Implement a function <code>memcpy(dst, src, count)</code> using <code>REP MOVSB</code> and <code>REP MOVSD</code>. Compare their performance.</li>
+<li><strong>Hex digit isolator:</strong> Write code that takes a byte in AL and prints both hex digits (high nibble first, then low nibble) using masking and shifting.</li>
+<li><strong>Stack calculator:</strong> Implement a simple RPN (Reverse Polish Notation) calculator using only the stack for number storage. Support +, -, *, / operations called as functions.</li>
+<li><strong>String length:</strong> Implement <code>strlen</code> using <code>SCASB</code> with <code>REPNE</code>, and another version using a manual loop. Compare the code size.</li>
+</ol>
+</div>
+
+<!-- ═══════════════════════════════════════════════════════════════════════════════ -->
+<!-- CHAPTER 3: NASM DEEP DIVE                                                      -->
+<!-- ═══════════════════════════════════════════════════════════════════════════════ -->
+<h1 id="ch3"><span class="chapter-num">Chapter 3</span><br>NASM Deep Dive &mdash; Directives, Macros, and Advanced Features</h1>
+<p class="chapter-subtitle">Mastering the Netwide Assembler: every directive, macro capability, and debugging technique</p>
+
+<h2 id="ch3-1">3.1 NASM Syntax Philosophy</h2>
+<p>NASM (Netwide Assembler) follows an <strong>Intel-syntax</strong> approach that is clean, consistent, and explicit. Unlike GAS (GNU Assembler) which uses AT&amp;T syntax (e.g., <code>movl $5, %eax</code>), NASM uses Intel syntax where the destination comes first: <code>mov eax, 5</code>. NASM is designed to be straightforward: what you write is what you get, with no hidden instruction transformations.</p>
+
+<p>Key principles of NASM syntax: (1) Square brackets <code>[]</code> always mean "memory access." <code>mov ax, bx</code> copies a register, while <code>mov ax, [bx]</code> reads from memory. (2) The size of memory operands is never implicit — you must specify <code>byte</code>, <code>word</code>, or <code>dword</code> when the size cannot be determined from the other operand. (3) Labels are defined by writing their name followed by a colon. Labels with a leading dot are <strong>local</strong> to the previous non-local label.</p>
+
+<pre>; NASM vs GAS (AT&amp;T) syntax comparison:
+; Operation              NASM (Intel)              GAS (AT&amp;T)
+; ──────────────────────────────────────────────────────────────────
+; Register move          mov  eax, ebx             movl %ebx, %eax
+; Immediate value        mov  eax, 42              movl $42, %eax
+; Memory read            mov  eax, [ebx]           movl (%ebx), %eax
+; Memory with offset     mov  eax, [ebx+4]         movl 4(%ebx), %eax
+; Indexed access         mov  eax, [ebx+esi*2]     movl (%ebx,%esi,2), %eax
+; Immediate to memory    mov  [addr], dword 5      movl $5, addr
+; Size override          mov  ax, [byte ptr]       movb addr, %al</pre>
+
+<h2 id="ch3-2">3.2 Directives Comprehensive Reference</h2>
+<p>NASM directives (also called pseudo-instructions) control the assembly process. They are not translated into machine code.</p>
+
+<h3>3.2.1 Mode and Origin Directives</h3>
+<pre><span class="code-directive">[BITS 16]</span>              ; Generate 16-bit code (real mode)
+<span class="code-directive">[BITS 32]</span>              ; Generate 32-bit code (protected mode)
+<span class="code-directive">[BITS 64]</span>              ; Generate 64-bit code (long mode)
+<span class="code-directive">[ORG 0x7C00]</span>           ; Set origin point for address calculations
+<span class="code-directive">[ORG 0x100000]</span>         ; Kernel loaded at 1 MB</pre>
+
+<p>The <code>[BITS]</code> directive affects instruction encoding. In 16-bit mode, <code>mov ax, [bx]</code> is encoded naturally. In 32-bit mode, the same instruction would need an operand-size override prefix to use 16-bit registers. NASM automatically handles these prefixes based on the BITS setting and the registers you use.</p>
+
+<h3>3.2.2 Section Directives</h3>
+<pre><span class="code-directive">section</span> .text          ; Code section (executable, read-only)
+<span class="code-directive">section</span> .data          ; Initialized data section (readable, writable)
+<span class="code-directive">section</span> .bss           ; Uninitialized data section (zero-filled at load)
+<span class="code-directive">section</span> .rodata        ; Read-only data (string literals, constants)
+
+; For flat binary output (-f bin), sections are concatenated in order.
+; For ELF output (-f elf32), sections are placed by the linker.
+
+; Example of a properly structured assembly file:
+<span class="code-directive">section</span> .text
+    <span class="code-instruction">global</span> <span class="code-label">_start</span>
+<span class="code-label">_start:</span>
+    <span class="code-instruction">call</span> <span class="code-label">main</span>
+    ; ...
+
+<span class="code-directive">section</span> .data
+<span class="code-label">hello:</span>    <span class="code-instruction">db</span> <span class="code-hex">"Hello"</span>, <span class="code-hex">0</span>
+<span class="code-label">counter:</span>  <span class="code-instruction">dd</span> <span class="code-hex">42</span>              ; dword (4 bytes) initialized to 42
+
+<span class="code-directive">section</span> .bss
+<span class="code-label">buffer:</span>   <span class="code-instruction">resb</span> <span class="code-hex">1024</span>         ; Reserve 1024 bytes (uninitialized)
+<span class="code-label">array:</span>    <span class="code-instruction">resd</span> <span class="code-hex">256</span>          ; Reserve 256 dwords (1024 bytes total)</pre>
+
+<h3>3.2.3 Data Definition Directives</h3>
+<pre><b>DB</b>  (Define Byte)      — Emit one or more bytes
+  db  0x55               ; Single byte
+  db  'A'                ; ASCII character (0x41)
+  db  'Hello', 0         ; String with null terminator
+  db  1, 2, 3, 4, 5      ; Five bytes
+
+<b>DW</b>  (Define Word)      — Emit one or more 16-bit words (little-endian)
+  dw  0xAA55             ; Bytes: 55 AA (little-endian)
+  dw  1000               ; Word value 1000 (0x03E8)
+
+<b>DD</b>  (Define Dword)     — Emit one or more 32-bit doublewords
+  dd  0x12345678         ; Bytes: 78 56 34 12
+  dd  0x00100000         ; Physical address 1 MB
+
+<b>DQ</b>  (Define Qword)     — Emit 64-bit quadwords
+  dq  0x123456789ABCDEF0
+
+<b>RESB</b> (Reserve Bytes)   — Reserve uninitialized bytes (BSS only)
+  resb 512               ; Reserve 512 bytes (filled with zeros by loader)
+
+<b>RESW, RESD, RESQ</b>       — Reserve words, dwords, qwords</pre>
+
+<h3>3.2.4 The TIMES Directive</h3>
+<p><code>TIMES</code> is one of NASM's most powerful features. It repeats an instruction or data declaration a specified number of times.</p>
+<pre>times 510 - ($ - $$) db 0    ; Pad to byte 510 (boot sector)
+times 256 dd 0                ; Reserve 256 dwords (1 KB of zeros)
+times 80 db ' '               ; 80 space characters
+times 100 nop                 ; 100 NOP instructions (code alignment or delay)</pre>
+
+<p>The expression <code>$ - $$</code> is fundamental: <code>$</code> is the current assembly position, and <code>$$</code> is the start of the current section. Their difference is the number of bytes emitted so far in this section.</p>
+
+<h3>3.2.5 EQU and Constants</h3>
+<pre>VIDEO_MEMORY    equ 0xB8000    ; Constant: not stored in output, just substituted
+VGA_WIDTH       equ 80
+VGA_HEIGHT      equ 25
+WHITE_ON_BLACK  equ 0x0F
+
+; Usage:
+mov  edi, VIDEO_MEMORY         ; Becomes: mov edi, 0xB8000
+mov  ecx, VGA_WIDTH * VGA_HEIGHT   ; NASM evaluates constants at assembly time
+
+; %assign for redefinable constants:
+%assign counter 0
+%assign counter counter + 1    ; counter = 1</pre>
+
+<h2 id="ch3-3">3.3 Macros and Conditional Assembly</h2>
+
+<h3>3.3.1 Single-Line Macros (%define)</h3>
+<pre>%define KERNEL_OFFSET  0x100000
+%define STACK_SIZE     0x10000       ; 64 KB stack
+%define SCREEN_CELLS   (80 * 25)
+
+; Macros can reference other macros:
+%define STACK_TOP      (KERNEL_OFFSET + STACK_SIZE)
+
+; Macros can even contain instructions:
+%define push_all       pushad
+%define pop_all        popad</pre>
+
+<h3>3.3.2 Multi-Line Macros (%macro)</h3>
+<pre>; %macro name param_count
+; ... body ...
+; %endmacro
+
+; Macro to print a character using BIOS
+%macro print_char 1
+    mov  ah, 0x0E
+    mov  al, %1
+    xor  bx, bx
+    int  0x10
+%endmacro
+
+; Usage:
+print_char 'H'
+print_char 'i'
+; Expands to the full 5-instruction sequence each time
+
+; Macro with multiple parameters:
+%macro set_cursor 2
+    mov  ah, 0x02
+    xor  bh, bh
+    mov  dh, %1        ; Row
+    mov  dl, %2        ; Column
+    int  0x10
+%endmacro
+
+set_cursor 10, 20    ; Row 10, column 20
+
+; Macro for common function prologue/epilogue:
+%macro function 1
+    %1:
+    push ebp
+    mov  ebp, esp
+%endmacro
+
+%macro endfunction 0
+    mov  esp, ebp
+    pop  ebp
+    ret
+%endmacro
+
+; Usage:
+function my_add
+    mov  eax, [ebp + 8]
+    add  eax, [ebp + 12]
+endfunction</pre>
+
+<h3>3.3.3 Conditional Assembly (%if, %ifdef, %ifndef)</h3>
+<pre>%define DEBUG_MODE 1
+
+%if DEBUG_MODE
+    ; This code is assembled only if DEBUG_MODE is defined as non-zero
+    db 'Debug build', 0
+%else
+    ; This code is assembled otherwise
+    db 'Release build', 0
+%endif
+
+; Check if a macro is defined:
+%ifdef ENABLE_VESA
+    call setup_vesa
+%endif
+
+; Include guard pattern:
+%ifndef MY_HEADER_INC
+%define MY_HEADER_INC
+    ; ... header contents ...
+%endif</pre>
+
+<h3>3.3.4 Repetition (%rep)</h3>
+<pre>; Generate a jump table:
+%rep 256
+    dd  isr_generic_handler
+%endrep
+
+; Generate numbered labels:
+%assign i 0
+%rep 16
+    isr_%+i:              ; isr_0, isr_1, ..., isr_15
+        push i
+        jmp common_isr
+    %assign i i+1
+%endrep
+
+; %+ concatenates the value of i to the label name</pre>
+
+<h2 id="ch3-4">3.4 Multi-File Projects</h2>
+
+<h3>3.4.1 The %include Directive</h3>
+<pre>; main.asm
+%include "constants.asm"
+%include "vga.asm"
+%include "keyboard.asm"
+%include "disk.asm"
+
+[BITS 32]
+[ORG 0x100000]
+
+kernel_main:
+    call vga_init
+    call keyboard_init
+    ; ...
+</pre>
+
+<h3>3.4.2 EXTERN and GLOBAL</h3>
+<pre>; When using ELF output (-f elf32) with a linker:
+<span class="code-directive">section</span> .text
+    <span class="code-instruction">global</span> <span class="code-label">kernel_main</span>     ; Make kernel_main visible to the linker
+    <span class="code-instruction">extern</span> <span class="code-label">vga_init</span>        ; vga_init is defined in another file
+    <span class="code-instruction">extern</span> <span class="code-label">printk</span>          ; printk is defined in another file
+
+<span class="code-label">kernel_main:</span>
+    <span class="code-instruction">call</span> <span class="code-label">vga_init</span>
+    <span class="code-instruction">mov</span> <span class="code-register">esi</span>, <span class="code-label">msg</span>
+    <span class="code-instruction">call</span> <span class="code-label">printk</span>
+    ; ...</pre>
+
+<h2 id="ch3-5">3.5 Debugging with List Files</h2>
+<pre># Generate a listing file showing addresses and machine code:
+nasm -f bin -l boot.lst boot.asm -o boot.bin
+
+# boot.lst output format:
+#      1                        [BITS 16]
+#      2                        [ORG 0x7C00]
+#      3 00000000 FA            cli
+#      4 00000001 31C0          xor ax, ax
+#      5 00000003 8ED8          mov ds, ax
+#      ^ line    ^ file offset  ^ machine code  ^ source
+
+# Disassemble a raw binary with ndisasm:
+ndisasm -b 16 -o 0x7C00 boot.bin
+# -b 16 = 16-bit mode
+# -o 0x7C00 = assume code starts at 0x7C00 (for correct addresses)
+
+# Inspect binary with hexdump:
+hexdump -C boot.bin | head -20
+# Or with xxd:
+xxd boot.bin</pre>
+
+<div class="exercise"><div class="exercise-title">Chapter 3 Exercises</div>
+<ol>
+<li><strong>Macro library:</strong> Create a macro library with macros for <code>PRINT_STRING</code>, <code>CLEAR_SCREEN</code>, <code>WAIT_KEY</code>, and <code>REBOOT</code>. Use them in a boot sector program.</li>
+<li><strong>Conditional assembly:</strong> Write a single source file that can be assembled as either a boot sector (-f bin) or an ELF object (-f elf32) using <code>%ifidn __OUTPUT_FORMAT__, bin</code>.</li>
+<li><strong>Auto-generated tables:</strong> Use <code>%rep</code> and <code>%assign</code> to generate a 256-entry ASCII property table (each byte indicates: is printable? is letter? is digit? is uppercase?).</li>
+<li><strong>Listing analysis:</strong> Assemble the Hello World boot sector with <code>-l</code>, then verify that every instruction's file offset matches the expected position based on instruction lengths.</li>
+</ol>
+</div>
+
+<!-- ═══════════════════════════════════════════════════════════════════════════════ -->
+<!-- CHAPTER 4: REAL MODE PROGRAMMING                                               -->
+<!-- ═══════════════════════════════════════════════════════════════════════════════ -->
+<h1 id="ch4"><span class="chapter-num">Chapter 4</span><br>Real Mode Programming &mdash; Segmentation, BIOS, and Memory</h1>
+<p class="chapter-subtitle">Mastering 16-bit x86 before the transition to protected mode</p>
+
+<h2 id="ch4-1">4.1 Real Mode Architecture</h2>
+<p><strong>Real Mode</strong> is the operating mode of the x86 CPU immediately after reset. It is a 16-bit environment that mimics the original 8086 processor while maintaining backward compatibility with all later x86 CPUs. In Real Mode: all registers are 16 bits wide (except the 32-bit extensions which are accessible with override prefixes); memory addresses are 20 bits, allowing access to 1 MB of physical memory (0x00000 to 0xFFFFF); memory uses the segmented addressing model; there is no memory protection — any code can access any memory and any I/O port; there are no privilege levels (no Ring 0 vs Ring 3); and interrupts are handled through the Interrupt Vector Table (IVT) at the bottom of memory.</p>
+
+<p>Real Mode is where every x86 OS begins. Even UEFI systems start in a compatibility mode before transitioning. Understanding Real Mode thoroughly is non-negotiable for OS developers.</p>
+
+<h2 id="ch4-2">4.2 Segmentation in Depth</h2>
+<p>In Real Mode, physical addresses are calculated using the formula: <strong>Physical Address = (Segment &times; 16) + Offset</strong>. The segment value is shifted left by 4 bits (equivalent to multiplying by 16 or adding a hex digit) and then added to the 16-bit offset.</p>
+
+<pre>; Physical address calculation examples:
+; Segment = 0x0000, Offset = 0x7C00  →  Physical = 0x00000 + 0x7C00 = 0x07C00
+; Segment = 0x07C0, Offset = 0x0000  →  Physical = 0x07C00 + 0x0000 = 0x07C00
+; Segment = 0xFFFF, Offset = 0x000F  →  Physical = 0xFFFF0 + 0x000F = 0xFFFF
+;                                      (wraps around to 0xFFFF on 8086, 0x0FFFF on 286+ with A20)
+
+; Loading segment registers:
+mov  ax, 0xB800
+mov  es, ax          ; ES = 0xB800 (video memory segment)
+; Now [ES:0] accesses physical address 0xB8000
+mov  ax, [es:0]      ; Read from 0xB8000
+
+; Segment overrides:
+mov  ax, [cs:bx]     ; Use Code Segment for data access
+mov  ax, [ss:si]     ; Use Stack Segment (default for BP-based anyway)
+lodsb                ; Reads from DS:SI
+movsb                ; Reads from DS:SI, writes to ES:DI</pre>
+
+<div class="note"><div class="box-title">Segment:Offset Aliasing</div>The same physical address can be represented by many different segment:offset combinations. This property, called "segment:offset aliasing," is a fundamental characteristic of Real Mode. For example, 0x07C00 can be expressed as 0x0000:0x7C00, 0x07C0:0x0000, 0x07B0:0x0100, or 0x0780:0x0400. This made memory management in Real Mode notoriously difficult.</div>
+
+<h2 id="ch4-3">4.3 BIOS Interrupt Services</h2>
+<p>BIOS provides a rich library of services accessible through software interrupts. These are your only tools in the boot sector before you have written your own drivers.</p>
+
+<h3>4.3.1 INT 0x10 — Video Services</h3>
+<pre>; AH = 0x00: Set Video Mode
+mov  ax, 0x0003       ; AL = 0x03: 80x25 color text mode
+int  0x10             ; Oldest, most compatible text mode
+
+mov  ax, 0x0013       ; AL = 0x13: 320x200 256-color graphics mode
+int  0x10             ; Mode 13h — the simplest graphics mode
+
+; AH = 0x0E: Teletype Output (our workhorse)
+mov  ah, 0x0E
+mov  al, 'X'          ; Character to display
+mov  bh, 0            ; Display page (usually 0)
+mov  bl, 0x0F         ; Color (in graphics modes only)
+int  0x10             ; Prints character, advances cursor, scrolls if needed
+
+; AH = 0x02: Set Cursor Position
+mov  ah, 0x02
+mov  bh, 0            ; Page 0
+mov  dh, 12           ; Row (0-24)
+mov  dl, 40           ; Column (0-79)
+int  0x10
+
+; AH = 0x06: Scroll Up Window (clear screen when AL=0)
+mov  ah, 0x06
+mov  al, 0            ; 0 = clear entire window
+mov  bh, 0x07         ; Attribute for blank lines (light grey on black)
+mov  cx, 0x0000       ; CH=top row, CL=left column
+mov  dx, 0x184F       ; DH=bottom row (24), DL=right column (79)
+int  0x10
+
+; AH = 0x08: Read Character and Attribute at Cursor
+mov  ah, 0x08
+mov  bh, 0
+int  0x10             ; Returns: AH=attribute, AL=character
+
+; AH = 0x09: Write Character and Attribute (does NOT advance cursor!)
+mov  ah, 0x09
+mov  al, 'A'          ; Character
+mov  bh, 0            ; Page
+mov  bl, 0x1F         ; Attribute (white on blue)
+mov  cx, 1            ; Repeat count
+int  0x10</pre>
+
+<h3>4.3.2 INT 0x13 — Disk Services</h3>
+<pre>; AH = 0x00: Reset Disk Controller
+mov  ah, 0x00
+mov  dl, 0x80         ; DL = drive (0x00=floppy A:, 0x80=first HDD)
+int  0x13
+jc   disk_error       ; CF=1 on error
+
+; AH = 0x02: Read Sectors (CHS addressing - legacy)
+; Inputs:
+;   AL = number of sectors to read (1-128, but BIOS may limit to 72)
+;   CH = cylinder number (low 8 bits, 0-1023)
+;   CL = sector number (bits 0-5, 1-63), cylinder high bits (bits 6-7)
+;   DH = head number (0-15)
+;   DL = drive number
+;   ES:BX = destination buffer address
+mov  ah, 0x02
+mov  al, 1            ; Read 1 sector
+mov  ch, 0            ; Cylinder 0
+mov  cl, 2            ; Sector 2 (sectors count from 1!)
+mov  dh, 0            ; Head 0
+mov  dl, 0x80         ; First hard disk
+mov  bx, 0x7E00       ; Load to ES:BX (we need ES=0 first)
+int  0x13
+jc   disk_error       ; CF=1 means error
+; Returns: AL = number of sectors actually read
+
+; AH = 0x41: Check LBA Extensions (CRITICAL for modern disks)
+mov  ah, 0x41
+mov  bx, 0x55AA       ; Magic value
+mov  dl, 0x80         ; Drive
+int  0x13
+jc   no_lba           ; CF=1 means not supported
+; Success: BX = 0xAA55 (magic response), CX = capabilities bitmask
+; If bit 0 of CX is set, LBA mode is supported
+
+; AH = 0x42: Extended Read Sectors (LBA - preferred method)
+; Uses a Disk Address Packet (DAP) structure:
+struc dap
+    .size:       db 16           ; Packet size (16 bytes)
+    .reserved:   db 0            ; Always 0
+    .sectors:    dw 1            ; Number of sectors to read
+    .offset:     dw 0x7E00       ; Destination offset
+    .segment:    dw 0x0000       ; Destination segment
+    .lba:        dq 1            ; Starting LBA (64-bit!)
+endstruc
+
+    mov  ah, 0x42
+    mov  dl, 0x80
+    mov  si, dap_structure
+    int  0x13
+    jc   disk_error
+
+; AH = 0x03: Write Sectors (same parameters as read)
+; AH = 0x08: Get Drive Parameters
+mov  ah, 0x08
+mov  dl, 0x80
+int  0x13
+; Returns: CH=max cylinder low, CL[6:7]=max cyl high, CL[0:5]=max sector
+;          DH=max head number, DL=number of attached drives of this type</pre>
+
+<h3>4.3.3 INT 0x16 — Keyboard Services</h3>
+<pre>; AH = 0x00: Wait for Keypress (blocking)
+mov  ah, 0x00
+int  0x16             ; Waits until key pressed
+; Returns: AL = ASCII character code (0 for special keys)
+;          AH = Scan code (hardware key identifier)
+; This REMOVES the key from the keyboard buffer
+
+; AH = 0x01: Check for Keypress (non-blocking)
+mov  ah, 0x01
+int  0x16
+jz   no_key           ; ZF=1 means no key waiting
+; ZF=0: A key is available (but NOT removed from buffer)
+; AL = ASCII, AH = scan code
+
+; AH = 0x02: Get Shift Flags
+mov  ah, 0x02
+int  0x16
+; Returns: AL = shift state bits:
+;   bit 0: Right Shift    bit 4: Scroll Lock active
+;   bit 1: Left Shift     bit 5: Num Lock active
+;   bit 2: Ctrl           bit 6: Caps Lock active
+;   bit 3: Alt            bit 7: Insert active</pre>
+
+<h3>4.3.4 INT 0x15 — Memory and System Services</h3>
+<pre>; AH = 0x88: Get Extended Memory Size (below 64 MB, deprecated)
+mov  ah, 0x88
+int  0x15
+; Returns: AX = number of KB above 1 MB (up to 64 MB)
+; Does NOT work above 64 MB
+
+; AX = 0xE820: Get Memory Map (THE method to use)
+; This is described in detail in Chapter 5</pre>
+
+<h2 id="ch4-4">4.4 Writing a Real-Mode Library</h2>
+<p>We now build a complete real-mode utility library. This code demonstrates professional-grade 16-bit assembly.</p>
+
+<pre>; ═══════════════════════════════════════════════════════════════════════════════
+; realmode_lib.asm  —  Real-mode utility functions
+; ═══════════════════════════════════════════════════════════════════════════════
+[BITS 16]
+
+<span class="code-comment">; ── print_string ──────────────────────────────────────────────────────────────</span>
+; Input: DS:SI = pointer to null-terminated string
+; Clobbers: AX, BX, SI
+<span class="code-label">print_string:</span>
+    <span class="code-instruction">pusha</span>
+<span class="code-label">.loop:</span>
+    <span class="code-instruction">lodsb</span>                  ; AL = [DS:SI++]
+    <span class="code-instruction">test</span> <span class="code-register">al</span>, <span class="code-register">al</span>          ; Null terminator?
+    <span class="code-instruction">jz</span> <span class="code-label">.done</span>
+    <span class="code-instruction">mov</span> <span class="code-register">ah</span>, <span class="code-hex">0x0E</span>         ; Teletype output
+    <span class="code-instruction">xor</span> <span class="code-register">bx</span>, <span class="code-register">bx</span>           ; Page 0
+    <span class="code-instruction">int</span> <span class="code-hex">0x10</span>
+    <span class="code-instruction">jmp</span> <span class="code-label">.loop</span>
+<span class="code-label">.done:</span>
+    <span class="code-instruction">popa</span>
+    <span class="code-instruction">ret</span>
+
+<span class="code-comment">; ── print_hex ─────────────────────────────────────────────────────────────────</span>
+; Input: DX = 16-bit value to print in hex
+; Clobbers: AX, CX, DX
+<span class="code-label">print_hex:</span>
+    <span class="code-instruction">pusha</span>
+    <span class="code-instruction">mov</span> <span class="code-register">cx</span>, <span class="code-hex">4</span>            ; 4 hex digits
+<span class="code-label">.loop:</span>
+    <span class="code-instruction">rol</span> <span class="code-register">dx</span>, <span class="code-hex">4</span>            ; Rotate left by 4 bits
+    <span class="code-instruction">mov</span> <span class="code-register">ax</span>, <span class="code-register">dx</span>
+    <span class="code-instruction">and</span> <span class="code-register">ax</span>, <span class="code-hex">0x0F</span>         ; Isolate low nibble
+    <span class="code-instruction">cmp</span> <span class="code-register">al</span>, <span class="code-hex">9</span>
+    <span class="code-instruction">jle</span> <span class="code-label">.digit</span>
+    <span class="code-instruction">add</span> <span class="code-register">al</span>, <span class="code-hex">7</span>            ; Adjust for A-F
+<span class="code-label">.digit:</span>
+    <span class="code-instruction">add</span> <span class="code-register">al</span>, <span class="code-hex">'0'</span>          ; Convert to ASCII
+    <span class="code-instruction">mov</span> <span class="code-register">ah</span>, <span class="code-hex">0x0E</span>
+    <span class="code-instruction">int</span> <span class="code-hex">0x10</span>
+    <span class="code-instruction">loop</span> <span class="code-label">.loop</span>
+    <span class="code-instruction">popa</span>
+    <span class="code-instruction">ret</span>
+
+<span class="code-comment">; ── read_line ─────────────────────────────────────────────────────────────────</span>
+; Input: ES:DI = buffer, CX = max length
+; Output: Buffer filled with user input (null-terminated)
+; Clobbers: AX, CX, DI
+<span class="code-label">read_line:</span>
+    <span class="code-instruction">pusha</span>
+    <span class="code-instruction">push</span> <span class="code-register">cx</span>
+    <span class="code-instruction">xor</span> <span class="code-register">cx</span>, <span class="code-register">cx</span>           ; Actual character count
+<span class="code-label">.loop:</span>
+    <span class="code-instruction">xor</span> <span class="code-register">ah</span>, <span class="code-register">ah</span>
+    <span class="code-instruction">int</span> <span class="code-hex">0x16</span>             ; Wait for keypress
+    <span class="code-instruction">cmp</span> <span class="code-register">al</span>, <span class="code-hex">0x0D</span>         ; Enter key?
+    <span class="code-instruction">je</span> <span class="code-label">.done</span>
+    <span class="code-instruction">cmp</span> <span class="code-register">al</span>, <span class="code-hex">0x08</span>         ; Backspace?
+    <span class="code-instruction">je</span> <span class="code-label">.backspace</span>
+    <span class="code-instruction">cmp</span> <span class="code-register">cx</span>, [<span class="code-register">esp</span>]        ; Buffer full?
+    <span class="code-instruction">jge</span> <span class="code-label">.loop</span>
+    <span class="code-instruction">stosb</span>                  ; [ES:DI++] = AL
+    <span class="code-instruction">inc</span> <span class="code-register">cx</span>
+    <span class="code-instruction">mov</span> <span class="code-register">ah</span>, <span class="code-hex">0x0E</span>         ; Echo character
+    <span class="code-instruction">int</span> <span class="code-hex">0x10</span>
+    <span class="code-instruction">jmp</span> <span class="code-label">.loop</span>
+<span class="code-label">.backspace:</span>
+    <span class="code-instruction">test</span> <span class="code-register">cx</span>, <span class="code-register">cx</span>          ; Anything to delete?
+    <span class="code-instruction">jz</span> <span class="code-label">.loop</span>
+    <span class="code-instruction">dec</span> <span class="code-register">di</span>               ; Back up buffer pointer
+    <span class="code-instruction">dec</span> <span class="code-register">cx</span>
+    <span class="code-instruction">mov</span> <span class="code-register">ah</span>, <span class="code-hex">0x0E</span>
+    <span class="code-instruction">mov</span> <span class="code-register">al</span>, <span class="code-hex">0x08</span>         ; Move cursor back
+    <span class="code-instruction">int</span> <span class="code-hex">0x10</span>
+    <span class="code-instruction">mov</span> <span class="code-register">al</span>, <span class="code-hex">' '</span>          ; Erase with space
+    <span class="code-instruction">int</span> <span class="code-hex">0x10</span>
+    <span class="code-instruction">mov</span> <span class="code-register">al</span>, <span class="code-hex">0x08</span>         ; Move cursor back again
+    <span class="code-instruction">int</span> <span class="code-hex">0x10</span>
+    <span class="code-instruction">jmp</span> <span class="code-label">.loop</span>
+<span class="code-label">.done:</span>
+    <span class="code-instruction">xor</span> <span class="code-register">al</span>, <span class="code-register">al</span>
+    <span class="code-instruction">stosb</span>                  ; Null-terminate
+    <span class="code-instruction">add</span> <span class="code-register">sp</span>, <span class="code-hex">2</span>            ; Clean up saved max length
+    <span class="code-instruction">popa</span>
+    <span class="code-instruction">ret</span>
+
+<span class="code-comment">; ── reboot ────────────────────────────────────────────────────────────────────</span>
+<span class="code-label">reboot:</span>
+    <span class="code-instruction">jmp</span> <span class="code-hex">0xFFFF</span>:<span class="code-hex">0x0000</span>   ; Far jump to reset vector
+    <span class="code-comment">; Alternatively, use the keyboard controller:</span>
+    <span class="code-comment">; mov al, 0xFE</span>
+    <span class="code-comment">; out 0x64, al         ; Pulse CPU reset line</span></pre>
+
+<div class="exercise"><div class="exercise-title">Chapter 4 Exercises</div>
+<ol>
+<li><strong>Memory dump:</strong> Write a function <code>hex_dump(addr, count)</code> that prints 16 bytes per line in hex, followed by ASCII representation (dots for non-printable characters).</li>
+<li><strong>Integer parser:</strong> Write a function <code>parse_hex(string)</code> that converts a hex string (e.g., "1A3F") to a 16-bit integer.</li>
+<li><strong>Disk sector viewer:</strong> Write a program that reads sector 1 from disk and displays its contents as a hex dump.</li>
+<li><strong>Interactive boot sector:</strong> Write a boot sector that acts as a simple monitor: reads a command ("r"=reboot, "d"=dump memory, "h"=help) and executes it.</li>
+</ol>
+</div>
+
+<!-- ═══════════════════════════════════════════════════════════════════════════════ -->
+<!-- CHAPTER 5: A20 LINE & MEMORY DETECTION                                         -->
+<!-- ═══════════════════════════════════════════════════════════════════════════════ -->
+<h1 id="ch5"><span class="chapter-num">Chapter 5</span><br>The A20 Line &amp; Memory Detection</h1>
+<p class="chapter-subtitle">Accessing memory above 1 MB and mapping the full RAM layout</p>
+
+<h2 id="ch5-1">5.1 The A20 Problem: A Historical Quirk</h2>
+<p>The original Intel 8086 processor had 20 address lines (A0 through A19), giving it exactly 1 MB of addressable memory (2<sup>20</sup> = 1,048,576 bytes). Programmers discovered that due to the segment:offset addressing, memory addresses "wrapped around" at the 1 MB boundary. For example, the address FFFF:0010 computes to physical address (0xFFFF &times; 16) + 0x0010 = 0xFFFF0 + 0x0010 = 0x100000, which is exactly 1 MB. But the 8086 only had 20 address lines, so bit 20 (the "1" in 0x100000) was discarded, and this address actually accessed physical location 0x00000.</p>
+
+<p>Some early PC programs intentionally relied on this wrap-around behavior. When IBM designed the AT (80286-based) with 24 address lines, they needed to preserve this behavior for backward compatibility. Their solution was the <strong>A20 Gate</strong> — a hardware latch on the keyboard controller (Intel 8042) that could electrically disable the A20 address line. With A20 gated OFF, address 0x100000 appears as 0x00000, preserving the wrap-around. To access memory above 1 MB ("extended memory"), we must enable A20.</p>
+
+<div class="warning"><div class="box-title">Why This Matters</div>Without the A20 line enabled, any address with bit 20 set will alias back to the corresponding address below 1 MB. When we transition to protected mode, we need to load the GDT and IDT above 1 MB. If A20 is disabled, those loads will corrupt the IVT and BDA, causing immediate system crashes that are extremely difficult to debug. Always enable A20 before entering protected mode.</div>
+
+<h2 id="ch5-2">5.2 Methods to Enable A20</h2>
+
+<h3>5.2.1 Method 1: BIOS INT 0x15 Function 0x2401 (Recommended First Try)</h3>
+<pre><span class="code-label">enable_a20_bios:</span>
+    <span class="code-instruction">mov</span> <span class="code-register">ax</span>, <span class="code-hex">0x2401</span>       ; AH=0x24 (A20 functions), AL=0x01 (enable)
+    <span class="code-instruction">int</span> <span class="code-hex">0x15</span>
+    <span class="code-instruction">jc</span> <span class="code-label">.failed</span>         ; CF=1 means function not supported
+    <span class="code-instruction">ret</span>
+<span class="code-label">.failed:</span>
+    <span class="code-instruction">jmp</span> <span class="code-label">enable_a20_kbc</span>  ; Fall through to keyboard controller method
+
+; Check if A20 is enabled (function 0x2402):
+<span class="code-label">check_a20_bios:</span>
+    <span class="code-instruction">mov</span> <span class="code-register">ax</span>, <span class="code-hex">0x2402</span>
+    <span class="code-instruction">int</span> <span class="code-hex">0x15</span>
+    ; Returns: AL = status (0=disabled, 1=enabled), CF on error</pre>
+
+<h3>5.2.2 Method 2: Keyboard Controller (8042) — Universal but Slow</h3>
+<pre><span class="code-label">enable_a20_kbc:</span>
+    <span class="code-instruction">call</span> <span class="code-label">kbc_wait_input</span>
+    <span class="code-instruction">mov</span> <span class="code-register">al</span>, <span class="code-hex">0xAD</span>       ; Command: Disable keyboard
+    <span class="code-instruction">out</span> <span class="code-hex">0x64</span>, <span class="code-register">al</span>       ; Send to keyboard controller command port
+
+    <span class="code-instruction">call</span> <span class="code-label">kbc_wait_input</span>
+    <span class="code-instruction">mov</span> <span class="code-register">al</span>, <span class="code-hex">0xD0</span>       ; Command: Read output port
+    <span class="code-instruction">out</span> <span class="code-hex">0x64</span>, <span class="code-register">al</span>
+
+    <span class="code-instruction">call</span> <span class="code-label">kbc_wait_output</span>
+    <span class="code-instruction">in</span> <span class="code-register">al</span>, <span class="code-hex">0x60</span>        ; Read output port value
+    <span class="code-instruction">push</span> <span class="code-register">ax</span>            ; Save it
+
+    <span class="code-instruction">call</span> <span class="code-label">kbc_wait_input</span>
+    <span class="code-instruction">mov</span> <span class="code-register">al</span>, <span class="code-hex">0xD1</span>       ; Command: Write output port
+    <span class="code-instruction">out</span> <span class="code-hex">0x64</span>, <span class="code-register">al</span>
+
+    <span class="code-instruction">call</span> <span class="code-label">kbc_wait_input</span>
+    <span class="code-instruction">pop</span> <span class="code-register">ax</span>
+    <span class="code-instruction">or</span> <span class="code-register">al</span>, <span class="code-hex">2</span>           ; Set bit 1 (A20 enable bit)
+    <span class="code-instruction">out</span> <span class="code-hex">0x60</span>, <span class="code-register">al</span>       ; Write modified value
+
+    <span class="code-instruction">call</span> <span class="code-label">kbc_wait_input</span>
+    <span class="code-instruction">mov</span> <span class="code-register">al</span>, <span class="code-hex">0xAE</span>       ; Command: Enable keyboard
+    <span class="code-instruction">out</span> <span class="code-hex">0x64</span>, <span class="code-register">al</span>
+
+    <span class="code-instruction">ret</span>
+
+<span class="code-comment">; Wait until keyboard controller input buffer is empty</span>
+<span class="code-label">kbc_wait_input:</span>
+    <span class="code-instruction">in</span> <span class="code-register">al</span>, <span class="code-hex">0x64</span>        ; Read status register
+    <span class="code-instruction">test</span> <span class="code-register">al</span>, <span class="code-hex">2</span>         ; Bit 1: Input buffer full?
+    <span class="code-instruction">jnz</span> <span class="code-label">kbc_wait_input</span>
+    <span class="code-instruction">ret</span>
+
+<span class="code-comment">; Wait until keyboard controller output buffer has data</span>
+<span class="code-label">kbc_wait_output:</span>
+    <span class="code-instruction">in</span> <span class="code-register">al</span>, <span class="code-hex">0x64</span>        ; Read status register
+    <span class="code-instruction">test</span> <span class="code-register">al</span>, <span class="code-hex">1</span>         ; Bit 0: Output buffer full?
+    <span class="code-instruction">jz</span> <span class="code-label">kbc_wait_output</span>
+    <span class="code-instruction">ret</span></pre>
+
+<h3>5.2.3 Method 3: Fast A20 via System Control Port A (0x92)</h3>
+<pre><span class="code-label">enable_a20_fast:</span>
+    <span class="code-instruction">in</span> <span class="code-register">al</span>, <span class="code-hex">0x92</span>        ; Read System Control Port A
+    <span class="code-instruction">test</span> <span class="code-register">al</span>, <span class="code-hex">2</span>         ; Is A20 already enabled?
+    <span class="code-instruction">jnz</span> <span class="code-label">.done</span>          ; If yes, skip
+    <span class="code-instruction">or</span> <span class="code-register">al</span>, <span class="code-hex">2</span>           ; Set A20 enable bit (bit 1)
+    <span class="code-instruction">and</span> <span class="code-register">al</span>, <span class="code-hex">0xFE</span>      ; CRITICAL: Clear bit 0 (reset bit!)
+    <span class="code-instruction">out</span> <span class="code-hex">0x92</span>, <span class="code-register">al</span>       ; Write back
+<span class="code-label">.done:</span>
+    <span class="code-instruction">ret</span>
+
+<div class="warning"><div class="box-title">CRITICAL: Bit 0 of Port 0x92</div>Bit 0 of port 0x92 is connected to the CPU reset line. If you set it, the CPU immediately resets. You MUST mask it off with <code>AND AL, 0xFE</code> before writing, or your system will reboot the instant you try to enable A20. This is a classic bug that causes "infinite reboot loops" during development.</div>
+
+<h3>5.2.4 Verifying A20 is Actually Enabled</h3>
+<pre><span class="code-comment">; Test if A20 is enabled by checking memory wrapping:
+; Write a test value to 0x0000:0x0500 (physical 0x00500)
+; Write a different value to 0xFFFF:0x0510
+;   If A20 OFF: 0xFFFF:0x0510 = 0xFFFF0 + 0x0510 = 0x000500 (wraps)
+;   If A20 ON:  0xFFFF:0x0510 = 0xFFFF0 + 0x0510 = 0x100500 (does NOT wrap)
+; So if A20 is off, the write to 0xFFFF:0x0510 will overwrite 0x0000:0x0500!</span>
+
+<span class="code-label">check_a20:</span>
+    <span class="code-instruction">pushf</span>
+    <span class="code-instruction">cli</span>                  ; No interrupts during test
+    <span class="code-instruction">push</span> <span class="code-register">ds</span>
+    <span class="code-instruction">push</span> <span class="code-register">es</span>
+    <span class="code-instruction">push</span> <span class="code-register">di</span>
+    <span class="code-instruction">push</span> <span class="code-register">si</span>
+
+    <span class="code-instruction">xor</span> <span class="code-register">ax</span>, <span class="code-register">ax</span>
+    <span class="code-instruction">mov</span> <span class="code-register">es</span>, <span class="code-register">ax</span>         ; ES = 0x0000
+    <span class="code-instruction">mov</span> <span class="code-register">di</span>, <span class="code-hex">0x0500</span>     ; ES:DI = 0x0000:0x0500
+
+    <span class="code-instruction">mov</span> <span class="code-register">ax</span>, <span class="code-hex">0xFFFF</span>
+    <span class="code-instruction">mov</span> <span class="code-register">ds</span>, <span class="code-register">ax</span>         ; DS = 0xFFFF
+    <span class="code-instruction">mov</span> <span class="code-register">si</span>, <span class="code-hex">0x0510</span>     ; DS:SI = 0xFFFF:0x0510
+
+    <span class="code-instruction">mov</span> <span class="code-register">al</span>, [<span class="code-register">es</span>:<span class="code-register">di</span>]   ; Save original value at 0x00500
+    <span class="code-instruction">push</span> <span class="code-register">ax</span>
+    <span class="code-instruction">mov</span> [<span class="code-register">es</span>:<span class="code-register">di</span>], <span class="code-register">byte</span> <span class="code-hex">0x00</span>  ; Write test value 0x00
+    <span class="code-instruction">mov</span> [<span class="code-register">ds</span>:<span class="code-register">si</span>], <span class="code-register">byte</span> <span class="code-hex">0xFF</span>  ; Write different value via wrap address
+
+    <span class="code-instruction">cmp</span> <span class="code-register">byte</span> [<span class="code-register">es</span>:<span class="code-register">di</span>], <span class="code-hex">0xFF</span>  ; Did the write alias?
+    <span class="code-instruction">pop</span> <span class="code-register">ax</span>
+    <span class="code-instruction">mov</span> [<span class="code-register">es</span>:<span class="code-register">di</span>], <span class="code-register">al</span>    ; Restore original value
+
+    <span class="code-instruction">mov</span> <span class="code-register">ax</span>, <span class="code-hex">0</span>
+    <span class="code-instruction">je</span> <span class="code-label">.exit</span>           ; If aliased, A20 is disabled
+    <span class="code-instruction">mov</span> <span class="code-register">ax</span>, <span class="code-hex">1</span>          ; A20 is enabled!
+
+<span class="code-label">.exit:</span>
+    <span class="code-instruction">pop</span> <span class="code-register">si</span>
+    <span class="code-instruction">pop</span> <span class="code-register">di</span>
+    <span class="code-instruction">pop</span> <span class="code-register">es</span>
+    <span class="code-instruction">pop</span> <span class="code-register">ds</span>
+    <span class="code-instruction">popf</span>
+    <span class="code-instruction">ret</span>
+    <span class="code-comment">; Returns AX=1 if enabled, AX=0 if disabled</span></pre>
+
+<h2 id="ch5-3">5.3 E820 Memory Map Detection</h2>
+<p>Before entering protected mode, we must know which memory regions are actually usable. The BIOS <code>INT 0x15, AX=0xE820</code> service is the definitive method. It returns a list of memory regions, each tagged with a type indicating whether it is usable RAM, reserved by hardware, or used for ACPI data.</p>
+
+<pre><span class="code-comment">; E820 Memory Map Entry Structure (20 bytes basic, 24 bytes with ACPI 3.0):</span>
+<span class="code-directive">struc</span> e820_entry
+    .base    <span class="code-instruction">resq</span> <span class="code-hex">1</span>     ; 8 bytes: Base address of region
+    .length  <span class="code-instruction">resq</span> <span class="code-hex">1</span>     ; 8 bytes: Length in bytes
+    .type    <span class="code-instruction">resd</span> <span class="code-hex">1</span>     ; 4 bytes: Region type
+<span class="code-directive">endstruc</span>
+
+<span class="code-comment">; Region types:</span>
+<span class="code-comment">;   1 = Usable RAM (normal memory)</span>
+<span class="code-comment">;   2 = Reserved (do NOT use — may be memory-mapped devices)</span>
+<span class="code-comment">;   3 = ACPI Reclaimable (usable after ACPI tables are parsed)</span>
+<span class="code-comment">;   4 = ACPI NVS (Non-Volatile Storage — must preserve across sleep)</span>
+<span class="code-comment">;   5 = Bad memory (contains errors — do not use)</span>
+<span class="code-comment">;   Any other = Treat as Reserved</span>
+
+<span class="code-label">get_memory_map:</span>
+    <span class="code-instruction">pusha</span>
+    <span class="code-instruction">mov</span> <span class="code-register">di</span>, <span class="code-hex">0x1004</span>     ; Store entries at 0x1004 (leave room for count)
+    <span class="code-instruction">xor</span> <span class="code-register">ebx</span>, <span class="code-register">ebx</span>       ; EBX=0 means "first call"
+    <span class="code-instruction">xor</span> <span class="code-register">bp</span>, <span class="code-register">bp</span>         ; BP = entry count
+    <span class="code-instruction">mov</span> <span class="code-register">edx</span>, <span class="code-hex">0x534D4150</span>  ; Magic: "SMAP" in little-endian ASCII
+
+<span class="code-label">.loop:</span>
+    <span class="code-instruction">mov</span> <span class="code-register">eax</span>, <span class="code-hex">0xE820</span>
+    <span class="code-instruction">mov</span> <span class="code-register">ecx</span>, <span class="code-hex">24</span>         ; Request 24-byte entries (ACPI 3.0 extended)
+    <span class="code-instruction">int</span> <span class="code-hex">0x15</span>
+
+    <span class="code-instruction">jc</span> <span class="code-label">.failed</span>         ; CF=1 = error or unsupported
+    <span class="code-instruction">cmp</span> <span class="code-register">eax</span>, <span class="code-hex">0x534D4150</span>  ; BIOS must return "SMAP" in EAX
+    <span class="code-instruction">jne</span> <span class="code-label">.failed</span>
+
+    <span class="code-instruction">jcxz</span> <span class="code-label">.skip</span>         ; Skip zero-length entries
+    <span class="code-instruction">cmp</span> <span class="code-register">cl</span>, <span class="code-hex">20</span>         ; Got at least 20 bytes?
+    <span class="code-instruction">jl</span> <span class="code-label">.no_ext</span>
+
+<span class="code-label">.no_ext:</span>
+    <span class="code-instruction">cmp</span> <span class="code-register">dword</span> [<span class="code-register">es</span>:<span class="code-register">di</span>+<span class="code-hex">16</span>], <span class="code-hex">1</span>  ; Check entry type
+    <span class="code-instruction">jne</span> <span class="code-label">.skip</span>          ; Skip non-RAM entries for our simple map
+
+    <span class="code-instruction">cmp</span> <span class="code-register">dword</span> [<span class="code-register">es</span>:<span class="code-register">di</span>+<span class="code-hex">8</span>], <span class="code-hex">0</span>   ; Check length high dword
+    <span class="code-instruction">jne</span> <span class="code-label">.valid</span>
+    <span class="code-instruction">cmp</span> <span class="code-register">dword</span> [<span class="code-register">es</span>:<span class="code-register">di</span>+<span class="code-hex">4</span>], <span class="code-hex">0</span>   ; Check length low dword
+    <span class="code-instruction">je</span> <span class="code-label">.skip</span>          ; Skip zero-length entries
+
+<span class="code-label">.valid:</span>
+    <span class="code-instruction">inc</span> <span class="code-register">bp</span>             ; Increment entry count
+    <span class="code-instruction">add</span> <span class="code-register">di</span>, <span class="code-hex">24</span>         ; Next entry slot
+
+<span class="code-label">.skip:</span>
+    <span class="code-instruction">test</span> <span class="code-register">ebx</span>, <span class="code-register">ebx</span>      ; EBX=0 means this was the last entry
+    <span class="code-instruction">jnz</span> <span class="code-label">.loop</span>
+
+    <span class="code-instruction">mov</span> [<span class="code-hex">0x1000</span>], <span class="code-register">bp</span>    ; Store entry count at 0x1000
+    <span class="code-instruction">popa</span>
+    <span class="code-instruction">clc</span>                  ; Success: clear carry flag
+    <span class="code-instruction">ret</span>
+
+<span class="code-label">.failed:</span>
+    <span class="code-instruction">popa</span>
+    <span class="code-instruction">stc</span>                  ; Failure: set carry flag
+    <span class="code-instruction">ret</span></pre>
+
+<h2 id="ch5-4">5.4 Building a Physical Memory Manager</h2>
+<p>With the E820 map stored, we can build a simple physical memory allocator. The strategy: parse the E820 entries, mark usable RAM pages (4 KB each), and implement a bitmap allocator.</p>
+
+<pre><span class="code-comment">; Simple physical page allocator (pre-paging, using E820 data):</span>
+<span class="code-comment">; We maintain a bitmap where each bit represents one 4KB physical page.</span>
+<span class="code-comment">; 0 = free, 1 = allocated. With 4GB of address space, we need 128KB of bitmap.</span>
+
+<span class="code-directive">section</span> .bss
+<span class="code-label">page_bitmap:</span>    <span class="code-instruction">resb</span> <span class="code-hex">131072</span>    <span class="code-comment">; 128 KB bitmap (covers 4 GB / 4096 pages)</span>
+<span class="code-label">total_pages:</span>    <span class="code-instruction">resd</span> <span class="code-hex">1</span>
+<span class="code-label">free_pages:</span>     <span class="code-instruction">resd</span> <span class="code-hex">1</span>
+
+<span class="code-directive">section</span> .text
+<span class="code-comment">; init_physical_memory: Parse E820 and build bitmap</span>
+<span class="code-comment">; Input: E820 data at 0x1000 (count) and 0x1004 (entries)</span>
+<span class="code-label">init_physical_memory:</span>
+    <span class="code-instruction">pusha</span>
+    <span class="code-instruction">xor</span> <span class="code-register">eax</span>, <span class="code-register">eax</span>
+    <span class="code-instruction">mov</span> <span class="code-register">edi</span>, <span class="code-label">page_bitmap</span>
+    <span class="code-instruction">mov</span> <span class="code-register">ecx</span>, <span class="code-hex">32768</span>      <span class="code-comment">; 128KB / 4 = 32768 dwords</span>
+    <span class="code-instruction">rep</span> <span class="code-instruction">stosd</span>            <span class="code-comment">; Zero the bitmap (all pages free)</span>
+
+    <span class="code-instruction">mov</span> <span class="code-register">si</span>, <span class="code-hex">0x1004</span>     <span class="code-comment">; First E820 entry</span>
+    <span class="code-instruction">mov</span> <span class="code-register">cx</span>, [<span class="code-hex">0x1000</span>]  <span class="code-comment">; Entry count</span>
+    <span class="code-instruction">test</span> <span class="code-register">cx</span>, <span class="code-register">cx</span>
+    <span class="code-instruction">jz</span> <span class="code-label">.done</span>
+
+<span class="code-label">.entry_loop:</span>
+    <span class="code-comment">; Mark low 1MB as allocated (reserved for BIOS)</span>
+    <span class="code-comment">; Mark any non-type-1 entries as allocated</span>
+    <span class="code-comment">; For now, simple approach: just track totals</span>
+    <span class="code-instruction">add</span> <span class="code-register">si</span>, <span class="code-hex">24</span>
+    <span class="code-instruction">dec</span> <span class="code-register">cx</span>
+    <span class="code-instruction">jnz</span> <span class="code-label">.entry_loop</span>
+
+<span class="code-label">.done:</span>
+    <span class="code-instruction">popa</span>
+    <span class="code-instruction">ret</span></pre>
+
+<div class="exercise"><div class="exercise-title">Chapter 5 Exercises</div>
+<ol>
+<li><strong>A20 robust enable:</strong> Write a function that tries all three A20 methods in order (BIOS, KBC, fast port) and verifies success after each.</li>
+<li><strong>E820 printer:</strong> Write a boot sector that calls E820 and prints each memory region's base address, length, and type in a human-readable table.</li>
+<li><strong>Page allocator:</strong> Implement a complete physical page allocator with <code>alloc_page()</code> and <code>free_page()</code> functions using a bitmap.</li>
+<li><strong>Memory stress test:</strong> After enabling A20, write a pattern to every 64 KB boundary above 1 MB and read it back to verify A20 is truly working.</li>
+</ol>
+</div>
+
+<!-- ═══════════════════════════════════════════════════════════════════════════════ -->
+<!-- PART II: THE BOOTLOADER & KERNEL ENTRY                                         -->
+<!-- ═══════════════════════════════════════════════════════════════════════════════ -->
+<h1 id="part2" style="page-break-before:always; text-align:center; border:none; font-size:26pt; color:#0d1b2a; margin-top:30%;">Part II<br><span style="font-size:18pt; color:#1565c0;">The Bootloader &amp; Kernel Entry</span></h1>
+
+<!-- ═══════════════════════════════════════════════════════════════════════════════ -->
+<!-- CHAPTER 6: DISK I/O & TWO-STAGE BOOTLOADER                                     -->
+<!-- ═══════════════════════════════════════════════════════════════════════════════ -->
+<h1 id="ch6"><span class="chapter-num">Chapter 6</span><br>Disk I/O, CHS/LBA &amp; Two-Stage Bootloaders</h1>
+<p class="chapter-subtitle">Loading your kernel from disk when 512 bytes is not enough</p>
+
+<h2 id="ch6-1">6.1 Disk Geometry and Addressing</h2>
+<p>Hard disks and floppy disks organize data in concentric circles called <strong>tracks</strong>, which are divided into <strong>sectors</strong>. Multiple platters (disk surfaces) provide multiple <strong>heads</strong> (one per surface). A <strong>cylinder</strong> is the collection of all tracks at the same radius across all surfaces.</p>
+
+<table>
+<thead><tr><th>Term</th><th>Definition</th></tr></thead>
+<tbody>
+<tr><td>Cylinder</td><td>All tracks at the same radius across all platters. Numbered from 0 outward.</td></tr>
+<tr><td>Head</td><td>A read/write head on a specific surface. Numbered from 0.</td></tr>
+<tr><td>Sector</td><td>A subdivision of a track. The smallest addressable unit, typically 512 bytes. Numbered from 1 (not 0!).</td></tr>
+<tr><td>Cluster</td><td>A group of contiguous sectors. The smallest allocation unit in a file system.</td></tr>
+</tbody>
+</table>
+
+<h2 id="ch6-2">6.2 CHS vs LBA Addressing</h2>
+<p><strong>CHS (Cylinder-Head-Sector)</strong> is the legacy addressing method. It requires three parameters and reflects physical disk geometry. However, BIOS INT 0x13 AH=0x02 can only access about 8 GB due to field size limits. <strong>LBA (Logical Block Addressing)</strong> treats the disk as a flat array of sectors numbered from 0. It is simpler and supports much larger drives.</p>
+
+<pre><span class="code-comment">; CHS to LBA conversion:</span>
+<span class="code-comment">; LBA = ((Cylinder * NumHeads) + Head) * SectorsPerTrack + (Sector - 1)</span>
+
+<span class="code-comment">; LBA to CHS conversion (needed for BIOS AH=0x02):</span>
+<span class="code-comment">; temp   = LBA / SectorsPerTrack</span>
+<span class="code-comment">; Sector = (LBA mod SectorsPerTrack) + 1</span>
+<span class="code-comment">; Head   = temp mod NumHeads</span>
+<span class="code-comment">; Cyl    = temp / NumHeads</span>
+
+<span class="code-label">lba_to_chs:</span>
+    <span class="code-instruction">push</span> <span class="code-register">bx</span>
+    <span class="code-instruction">mov</span> <span class="code-register">bx</span>, <span class="code-register">ax</span>         <span class="code-comment">; Save LBA in BX</span>
+
+    <span class="code-instruction">xor</span> <span class="code-register">dx</span>, <span class="code-register">dx</span>
+    <span class="code-instruction">div</span> <span class="code-register">word</span> [<span class="code-label">sectors_per_track</span>]  <span class="code-comment">; AX = LBA / SPT, DX = LBA % SPT</span>
+    <span class="code-instruction">inc</span> <span class="code-register">dx</span>             <span class="code-comment">; Sector = remainder + 1 (sectors start at 1)</span>
+    <span class="code-instruction">mov</span> <span class="code-register">cl</span>, <span class="code-register">dl</span>         <span class="code-comment">; CL = sector number</span>
+
+    <span class="code-instruction">xor</span> <span class="code-register">dx</span>, <span class="code-register">dx</span>
+    <span class="code-instruction">div</span> <span class="code-register">word</span> [<span class="code-label">num_heads</span>]         <span class="code-comment">; AX = cylinder, DX = head</span>
+    <span class="code-instruction">mov</span> <span class="code-register">dh</span>, <span class="code-register">dl</span>         <span class="code-comment">; DH = head</span>
+    <span class="code-instruction">mov</span> <span class="code-register">ch</span>, <span class="code-register">al</span>         <span class="code-comment">; CH = cylinder low 8 bits</span>
+
+    <span class="code-instruction">mov</span> <span class="code-register">al</span>, <span class="code-register">ah</span>
+    <span class="code-instruction">and</span> <span class="code-register">al</span>, <span class="code-hex">0x03</span>       <span class="code-comment">; Isolate cylinder bits 8-9</span>
+    <span class="code-instruction">shl</span> <span class="code-register">al</span>, <span class="code-hex">6</span>          <span class="code-comment">; Shift to positions 6-7 of CL</span>
+    <span class="code-instruction">or</span> <span class="code-register">cl</span>, <span class="code-register">al</span>          <span class="code-comment">; CL[7:6] = cylinder high bits, CL[5:0] = sector</span>
+
+    <span class="code-instruction">pop</span> <span class="code-register">bx</span>
+    <span class="code-instruction">ret</span>
+
+<span class="code-label">sectors_per_track:</span>    <span class="code-instruction">dw</span> <span class="code-hex">18</span>
+<span class="code-label">num_heads:</span>            <span class="code-instruction">dw</span> <span class="code-hex">2</span></pre>
+
+<h2 id="ch6-3">6.3 Stage 1 Bootloader</h2>
+<p>The Stage 1 bootloader is the 512-byte boot sector. Its only job is to load Stage 2 from a known location on disk and jump to it. We keep it minimal.</p>
+
+<pre><span class="code-comment">; ═══════════════════════════════════════════════════════════════════════════════</span>
+<span class="code-comment">; stage1.asm — Minimal Stage 1: Loads Stage 2 from LBA 1</span>
+<span class="code-comment">; ═══════════════════════════════════════════════════════════════════════════════</span>
+<span class="code-directive">[BITS 16]</span>
+<span class="code-directive">[ORG 0x7C00]</span>
+
+<span class="code-label">STAGE2_SEG</span>     <span class="code-directive">equ</span> <span class="code-hex">0x0800</span>    <span class="code-comment">; Load stage 2 to 0x0800:0x0000 = 0x08000</span>
+<span class="code-label">STAGE2_SECTORS</span> <span class="code-directive">equ</span> <span class="code-hex">16</span>       <span class="code-comment">; Load 16 sectors (8 KB) for stage 2</span>
+
+<span class="code-label">start:</span>
+    <span class="code-instruction">jmp</span> <span class="code-hex">0x0000</span>:<span class="code-label">.init</span>   <span class="code-comment">; Canonicalize CS:IP to 0x0000:0x7C00</span>
+<span class="code-label">.init:</span>
+    <span class="code-instruction">xor</span> <span class="code-register">ax</span>, <span class="code-register">ax</span>
+    <span class="code-instruction">mov</span> <span class="code-register">ds</span>, <span class="code-register">ax</span>
+    <span class="code-instruction">mov</span> <span class="code-register">es</span>, <span class="code-register">ax</span>
+    <span class="code-instruction">mov</span> <span class="code-register">ss</span>, <span class="code-register">ax</span>
+    <span class="code-instruction">mov</span> <span class="code-register">sp</span>, <span class="code-hex">0x7C00</span>
+    <span class="code-instruction">mov</span> [<span class="code-label">boot_drive</span>], <span class="code-register">dl</span>  <span class="code-comment">; BIOS passes boot drive in DL</span>
+
+    <span class="code-instruction">call</span> <span class="code-label">enable_a20_fast</span>  <span class="code-comment">; Enable A20 (see Chapter 5)</span>
+
+    <span class="code-instruction">mov</span> <span class="code-register">si</span>, <span class="code-label">msg_loading</span>
+    <span class="code-instruction">call</span> <span class="code-label">print_string</span>
+
+    <span class="code-comment">; ── Load Stage 2 using LBA ─────────────────────────────────────────</span>
+    <span class="code-instruction">mov</span> <span class="code-register">ah</span>, <span class="code-hex">0x42</span>         <span class="code-comment">; Extended read</span>
+    <span class="code-instruction">mov</span> <span class="code-register">dl</span>, [<span class="code-label">boot_drive</span>]
+    <span class="code-instruction">mov</span> <span class="code-register">si</span>, <span class="code-label">dap</span>
+    <span class="code-instruction">int</span> <span class="code-hex">0x13</span>
+    <span class="code-instruction">jc</span> <span class="code-label">disk_error</span>
+
+    <span class="code-instruction">mov</span> <span class="code-register">si</span>, <span class="code-label">msg_ok</span>
+    <span class="code-instruction">call</span> <span class="code-label">print_string</span>
+
+    <span class="code-comment">; ── Jump to Stage 2 ────────────────────────────────────────────────</span>
+    <span class="code-instruction">mov</span> <span class="code-register">dl</span>, [<span class="code-label">boot_drive</span>] <span class="code-comment">; Pass boot drive to Stage 2</span>
+    <span class="code-instruction">jmp</span> <span class="code-hex">0x0000</span>:<span class="code-hex">0x8000</span>   <span class="code-comment">; Far jump to Stage 2</span>
+
+<span class="code-comment">; ── Disk Address Packet ──────────────────────────────────────────────────────</span>
+<span class="code-label">dap:</span>
+    <span class="code-instruction">db</span> <span class="code-hex">0x10</span>            <span class="code-comment">; Packet size (16 bytes)</span>
+    <span class="code-instruction">db</span> <span class="code-hex">0</span>               <span class="code-comment">; Reserved (0)</span>
+    <span class="code-instruction">dw</span> <span class="code-label">STAGE2_SECTORS</span>  <span class="code-comment">; Number of sectors</span>
+    <span class="code-instruction">dw</span> <span class="code-hex">0x0000</span>          <span class="code-comment">; Offset</span>
+    <span class="code-instruction">dw</span> <span class="code-label">STAGE2_SEG</span>      <span class="code-comment">; Segment</span>
+    <span class="code-instruction">dq</span> <span class="code-hex">1</span>               <span class="code-comment">; Starting LBA (sector 1, right after boot sector)</span>
+
+<span class="code-comment">; ... (print_string, enable_a20_fast, disk_error handlers here)</span>
+
+<span class="code-label">msg_loading:</span>  <span class="code-instruction">db</span> <span class="code-hex">"Loading Stage 2..."</span>, <span class="code-hex">0</span>
+<span class="code-label">msg_ok:</span>       <span class="code-instruction">db</span> <span class="code-hex">" OK"</span>, <span class="code-hex">0x0D</span>, <span class="code-hex">0x0A</span>, <span class="code-hex">0</span>
+<span class="code-label">boot_drive:</span>   <span class="code-instruction">db</span> <span class="code-hex">0</span>
+
+<span class="code-instruction">times</span> <span class="code-hex">510</span> - ($ - $$) <span class="code-instruction">db</span> <span class="code-hex">0</span>
+<span class="code-instruction">dw</span> <span class="code-hex">0xAA55</span></pre>
+
+<h2 id="ch6-4">6.4 Stage 2 Bootloader</h2>
+<p>Stage 2 has ~8 KB (or more) of space. It performs the full initialization: detects memory, sets up the GDT, enters protected mode, and loads the kernel.</p>
+
+<pre><span class="code-comment">; ═══════════════════════════════════════════════════════════════════════════════</span>
+<span class="code-comment">; stage2.asm — Full Stage 2 Bootloader</span>
+<span class="code-comment">; Loaded at 0x8000 by Stage 1</span>
+<span class="code-comment">; ═══════════════════════════════════════════════════════════════════════════════</span>
+<span class="code-directive">[BITS 16]</span>
+<span class="code-directive">[ORG 0x8000]</span>
+
+<span class="code-label">KERNEL_OFFSET</span>  <span class="code-directive">equ</span> <span class="code-hex">0x00100000</span>  <span class="code-comment">; Load kernel at 1 MB</span>
+<span class="code-label">KERNEL_SECTORS</span> <span class="code-directive">equ</span> <span class="code-hex">64</span>          <span class="code-comment">; 32 KB kernel</span>
+
+<span class="code-label">stage2_entry:</span>
+    <span class="code-instruction">mov</span> [<span class="code-label">boot_drive</span>], <span class="code-register">dl</span>
+    <span class="code-instruction">mov</span> <span class="code-register">si</span>, <span class="code-label">msg_stage2</span>
+    <span class="code-instruction">call</span> <span class="code-label">print_string</span>
+
+    <span class="code-comment">; Step 1: Detect memory</span>
+    <span class="code-instruction">call</span> <span class="code-label">get_memory_map</span>
+    <span class="code-instruction">jc</span> <span class="code-label">mem_error</span>
+    <span class="code-instruction">mov</span> <span class="code-register">si</span>, <span class="code-label">msg_memok</span>
+    <span class="code-instruction">call</span> <span class="code-label">print_string</span>
+
+    <span class="code-comment">; Step 2: Enable A20</span>
+    <span class="code-instruction">call</span> <span class="code-label">enable_a20_fast</span>
+    <span class="code-instruction">call</span> <span class="code-label">check_a20</span>
+    <span class="code-instruction">test</span> <span class="code-register">ax</span>, <span class="code-register">ax</span>
+    <span class="code-instruction">jz</span> <span class="code-label">a20_error</span>
+    <span class="code-instruction">mov</span> <span class="code-register">si</span>, <span class="code-label">msg_a20ok</span>
+    <span class="code-instruction">call</span> <span class="code-label">print_string</span>
+
+    <span class="code-comment">; Step 3: Load kernel to 1 MB using LBA</span>
+    <span class="code-instruction">mov</span> <span class="code-register">si</span>, <span class="code-label">msg_kernel</span>
+    <span class="code-instruction">call</span> <span class="code-label">print_string</span>
+    <span class="code-instruction">call</span> <span class="code-label">load_kernel</span>
+    <span class="code-instruction">mov</span> <span class="code-register">si</span>, <span class="code-label">msg_ok</span>
+    <span class="code-instruction">call</span> <span class="code-label">print_string</span>
+
+    <span class="code-comment">; Step 4: Set up GDT and enter protected mode</span>
+    <span class="code-instruction">cli</span>
+    <span class="code-instruction">lgdt</span> [<span class="code-label">gdt_descriptor</span>]
+    <span class="code-instruction">mov</span> <span class="code-register">eax</span>, <span class="code-register">cr0</span>
+    <span class="code-instruction">or</span> <span class="code-register">al</span>, <span class="code-hex">1</span>
+    <span class="code-instruction">mov</span> <span class="code-register">cr0</span>, <span class="code-register">eax</span>
+    <span class="code-instruction">jmp</span> <span class="code-hex">0x08</span>:<span class="code-label">protected_mode</span>
+
+<span class="code-comment">; ── Protected Mode Entry ─────────────────────────────────────────────────────</span>
+<span class="code-directive">[BITS 32]</span>
+<span class="code-label">protected_mode:</span>
+    <span class="code-instruction">mov</span> <span class="code-register">ax</span>, <span class="code-hex">0x10</span>       <span class="code-comment">; Data segment selector</span>
+    <span class="code-instruction">mov</span> <span class="code-register">ds</span>, <span class="code-register">ax</span>
+    <span class="code-instruction">mov</span> <span class="code-register">es</span>, <span class="code-register">ax</span>
+    <span class="code-instruction">mov</span> <span class="code-register">fs</span>, <span class="code-register">ax</span>
+    <span class="code-instruction">mov</span> <span class="code-register">gs</span>, <span class="code-register">ax</span>
+    <span class="code-instruction">mov</span> <span class="code-register">ss</span>, <span class="code-register">ax</span>
+    <span class="code-instruction">mov</span> <span class="code-register">esp</span>, <span class="code-hex">0x90000</span>   <span class="code-comment">; Set up 32-bit stack</span>
+
+    <span class="code-instruction">jmp</span> <span class="code-label">KERNEL_OFFSET</span>  <span class="code-comment">; Jump to kernel!</span>
+
+<span class="code-comment">; ... (GDT defined here, same as Chapter 7)</span>
+<span class="code-comment">; ... (load_kernel uses LBA to read KERNEL_SECTORS into KERNEL_OFFSET)</span></pre>
+
+<h2 id="ch6-5">6.5 FAT12 Filesystem Parsing</h2>
+<p>FAT12 is simple enough to parse in assembly and is the filesystem used on 1.44 MB floppy disks. Understanding FAT is excellent preparation for building your own filesystem.</p>
+
+<pre><span class="code-comment">; FAT12 Boot Sector / BIOS Parameter Block (BPB):</span>
+<span class="code-label">bpb:</span>
+    <span class="code-instruction">jmp</span> <span class="code-label">.skip</span>
+    <span class="code-instruction">nop</span>
+    <span class="code-instruction">db</span> <span class="code-hex">'MYOS    '</span>      <span class="code-comment">; OEM name (8 bytes)</span>
+<span class="code-label">.bytes_per_sector:</span>    <span class="code-instruction">dw</span> <span class="code-hex">512</span>
+<span class="code-label">.sectors_per_cluster:</span><span class="code-instruction">db</span> <span class="code-hex">1</span>
+<span class="code-label">.reserved_sectors:</span>   <span class="code-instruction">dw</span> <span class="code-hex">1</span>
+<span class="code-label">.num_fats:</span>           <span class="code-instruction">db</span> <span class="code-hex">2</span>
+<span class="code-label">.root_entries:</span>       <span class="code-instruction">dw</span> <span class="code-hex">224</span>
+<span class="code-label">.total_sectors:</span>      <span class="code-instruction">dw</span> <span class="code-hex">2880</span>
+<span class="code-label">.media_type:</span>         <span class="code-instruction">db</span> <span class="code-hex">0xF0</span>
+<span class="code-label">.sectors_per_fat:</span>    <span class="code-instruction">dw</span> <span class="code-hex">9</span>
+<span class="code-label">.sectors_per_track:</span>  <span class="code-instruction">dw</span> <span class="code-hex">18</span>
+<span class="code-label">.num_heads:</span>          <span class="code-instruction">dw</span> <span class="code-hex">2</span>
+<span class="code-label">.hidden_sectors:</span>     <span class="code-instruction">dd</span> <span class="code-hex">0</span>
+<span class="code-label">.large_sectors:</span>      <span class="code-instruction">dd</span> <span class="code-hex">0</span>
+<span class="code-label">.drive_num:</span>          <span class="code-instruction">db</span> <span class="code-hex">0</span>
+<span class="code-label">.reserved_nt:</span>        <span class="code-instruction">db</span> <span class="code-hex">0</span>
+<span class="code-label">.signature:</span>          <span class="code-instruction">db</span> <span class="code-hex">0x29</span>
+<span class="code-label">.volume_id:</span>          <span class="code-instruction">dd</span> <span class="code-hex">0xDEADBEEF</span>
+<span class="code-label">.volume_label:</span>       <span class="code-instruction">db</span> <span class="code-hex">'MYOS DISK  '</span>
+<span class="code-label">.fs_type:</span>            <span class="code-instruction">db</span> <span class="code-hex">'FAT12   '</span>
+<span class="code-label">.skip:</span>
+    <span class="code-comment">; Boot code continues here...</span></pre>
+
+<div class="exercise"><div class="exercise-title">Chapter 6 Exercises</div>
+<ol>
+<li><strong>LBA loader:</strong> Write a complete Stage 1 that loads 32 sectors using LBA and prints a progress indicator (one dot per sector).</li>
+<li><strong>FAT12 reader:</strong> Write a function that reads the root directory of a FAT12 floppy and prints all filenames.</li>
+<li><strong>Error handling:</strong> Add retry logic to your disk reads: if INT 0x13 returns an error, reset the disk controller and retry up to 3 times.</li>
+<li><strong>Kernel relocation:</strong> Modify Stage 2 to load the kernel at 0x100000 using the "unreal mode" trick (set segment limits to 4GB in real mode using the GDT, allowing 32-bit offsets).</li>
+</ol>
+</div>
+
+<!-- ═══════════════════════════════════════════════════════════════════════════════ -->
+<!-- CHAPTER 7: PROTECTED MODE                                                      -->
+<!-- ═══════════════════════════════════════════════════════════════════════════════ -->
+<h1 id="ch7"><span class="chapter-num">Chapter 7</span><br>Protected Mode &mdash; GDT, Descriptors, The Big Switch</h1>
+<p class="chapter-subtitle">Leaving real mode forever: entering the 32-bit world</p>
+
+<h2 id="ch7-1">7.1 Why Protected Mode?</h2>
+<p>Protected Mode, introduced with the 80286 and significantly enhanced in the 80386, transforms the x86 CPU from a simple 16-bit processor into a modern computing platform. In Protected Mode: registers are 32 bits wide (EAX, EBX, etc.); the CPU can address up to 4 GB of memory (2<sup>32</sup> bytes); memory is protected through segment limit checks and page-level permissions; four privilege levels (Ring 0-3) separate the kernel from user programs; hardware multitasking support is provided via the TSS; and virtual memory through paging allows each process to have its own address space.</p>
+
+<p>The transition from Real Mode to Protected Mode is a one-way gate (without resetting the CPU). Once you enter Protected Mode, all memory accesses go through the GDT, and segment registers contain selectors, not raw segment bases.</p>
+
+<h2 id="ch7-2">7.2 The Global Descriptor Table (GDT)</h2>
+<p>The GDT is an array of 8-byte <strong>segment descriptors</strong> stored in memory. Each descriptor defines a memory segment: its base address, its limit (size), and its attributes (type, privilege level, granularity). The CPU references GDT entries through <strong>segment selectors</strong> — 16-bit values loaded into segment registers.</p>
+
+<pre><span class="code-comment">; GDT Descriptor Format (8 bytes = 64 bits):</span>
+<span class="code-comment">;</span>
+<span class="code-comment">;  Bit:  63      56 55 52 51 48 47    40 39      32 31      16 15       0</span>
+<span class="code-comment">;       +---------+-----+-----+--------+----------+----------+----------+</span>
+<span class="code-comment">;       │ Base    │Flags│Limit│ Access │ Base     │ Base     │ Limit    │</span>
+<span class="code-comment">;       │[31:24]  │G D  │[19:16]│ Byte │ [23:16]  │ [15:0]   │ [15:0]   │</span>
+<span class="code-comment">;       │         │B L  │     │ P D S  │          │          │          │</span>
+<span class="code-comment">;       │         │0 0  │     │ L E T  │          │          │          │</span>
+<span class="code-comment">;       +---------+-----+-----+--------+----------+----------+----------+</span>
+<span class="code-comment">;        1 byte    1 nibble 1 nibble  1 byte     1 byte     2 bytes    2 bytes</span>
+<span class="code-comment">;</span>
+<span class="code-comment">; Access Byte (bits 47:40):</span>
+<span class="code-comment">;   Bit 7 (P): Present. Must be 1 for valid descriptor.</span>
+<span class="code-comment">;   Bits 6:5 (DPL): Descriptor Privilege Level (0=kernel, 3=user).</span>
+<span class="code-comment">;   Bit 4 (S): 1=code/data segment, 0=system segment.</span>
+<span class="code-comment">;   Bit 3 (E): 1=executable (code), 0=data.</span>
+<span class="code-comment">;   Bit 2 (DC): Direction (data: 0=grow up, 1=grow down) / Conforming (code).</span>
+<span class="code-comment">;   Bit 1 (RW): Readable (code) / Writable (data). 0=read-only data.</span>
+<span class="code-comment">;   Bit 0 (A): Accessed. CPU sets this when segment is used. OS can track.</span>
+<span class="code-comment">;</span>
+<span class="code-comment">; Flags Nibble (bits 55:52):</span>
+<span class="code-comment">;   Bit 3 (G): Granularity. 0=limit in bytes, 1=limit in 4KB pages.</span>
+<span class="code-comment">;   Bit 2 (D/B): Default operand size. 0=16-bit, 1=32-bit.</span>
+<span class="code-comment">;   Bit 1 (L): 1=64-bit code segment (must be 0 for 32-bit).</span>
+<span class="code-comment">;   Bit 0 (AVL): Available for OS use.</span></pre>
+
+<h2 id="ch7-3">7.3 Building the GDT</h2>
+<pre><span class="code-comment">; A minimal but complete GDT for our OS:</span>
+<span class="code-directive">align</span> <span class="code-hex">8</span>
+<span class="code-label">gdt_start:</span>
+
+<span class="code-comment">; ── Null Descriptor (REQUIRED — selector 0x00) ──────────────────────────────</span>
+<span class="code-comment">; The CPU requires the first GDT entry to be all zeros. Loading selector 0</span>
+<span class="code-comment">; into a segment register causes a #GP exception.</span>
+<span class="code-label">gdt_null:</span>
+    <span class="code-instruction">dq</span> <span class="code-hex">0</span>
+
+<span class="code-comment">; ── Code Segment Descriptor (selector 0x08) ─────────────────────────────────</span>
+<span class="code-comment">; Base=0, Limit=4GB, Ring 0, 32-bit, executable, readable</span>
+<span class="code-label">gdt_code:</span>
+    <span class="code-instruction">dw</span> <span class="code-hex">0xFFFF</span>        <span class="code-comment">; Limit [15:0] = 0xFFFF</span>
+    <span class="code-instruction">dw</span> <span class="code-hex">0</span>              <span class="code-comment">; Base [15:0] = 0</span>
+    <span class="code-instruction">db</span> <span class="code-hex">0</span>              <span class="code-comment">; Base [23:16] = 0</span>
+    <span class="code-instruction">db</span> <span class="code-hex">10011010b</span>     <span class="code-comment">; Access: P=1, DPL=00, S=1, E=1, DC=0, RW=1, A=0</span>
+    <span class="code-instruction">db</span> <span class="code-hex">11001111b</span>     <span class="code-comment">; Flags: G=1 (4KB), D/B=1 (32-bit), L=0, AVL=0 | Limit[19:16]=0xF</span>
+    <span class="code-instruction">db</span> <span class="code-hex">0</span>              <span class="code-comment">; Base [31:24] = 0</span>
+
+<span class="code-comment">; ── Data Segment Descriptor (selector 0x10) ─────────────────────────────────</span>
+<span class="code-comment">; Base=0, Limit=4GB, Ring 0, 32-bit, writable</span>
+<span class="code-label">gdt_data:</span>
+    <span class="code-instruction">dw</span> <span class="code-hex">0xFFFF</span>
+    <span class="code-instruction">dw</span> <span class="code-hex">0</span>
+    <span class="code-instruction">db</span> <span class="code-hex">0</span>
+    <span class="code-instruction">db</span> <span class="code-hex">10010010b</span>     <span class="code-comment">; Access: P=1, DPL=00, S=1, E=0 (data), DC=0, RW=1, A=0</span>
+    <span class="code-instruction">db</span> <span class="code-hex">11001111b</span>     <span class="code-comment">; Same flags as code segment</span>
+    <span class="code-instruction">db</span> <span class="code-hex">0</span>
+
+<span class="code-comment">; ── User Code Segment (selector 0x18, will be used in Chapter 15) ───────────</span>
+<span class="code-label">gdt_user_code:</span>
+    <span class="code-instruction">dw</span> <span class="code-hex">0xFFFF</span>
+    <span class="code-instruction">dw</span> <span class="code-hex">0</span>
+    <span class="code-instruction">db</span> <span class="code-hex">0</span>
+    <span class="code-instruction">db</span> <span class="code-hex">11111010b</span>     <span class="code-comment">; Access: P=1, DPL=11 (Ring 3!), S=1, E=1, RW=1</span>
+    <span class="code-instruction">db</span> <span class="code-hex">11001111b</span>
+    <span class="code-instruction">db</span> <span class="code-hex">0</span>
+
+<span class="code-comment">; ── User Data Segment (selector 0x20) ───────────────────────────────────────</span>
+<span class="code-label">gdt_user_data:</span>
+    <span class="code-instruction">dw</span> <span class="code-hex">0xFFFF</span>
+    <span class="code-instruction">dw</span> <span class="code-hex">0</span>
+    <span class="code-instruction">db</span> <span class="code-hex">0</span>
+    <span class="code-instruction">db</span> <span class="code-hex">11110010b</span>     <span class="code-comment">; Access: P=1, DPL=11, S=1, E=0, RW=1</span>
+    <span class="code-instruction">db</span> <span class="code-hex">11001111b</span>
+    <span class="code-instruction">db</span> <span class="code-hex">0</span>
+
+<span class="code-label">gdt_end:</span>
+
+<span class="code-comment">; GDT Descriptor (used by LGDT instruction)</span>
+<span class="code-label">gdt_descriptor:</span>
+    <span class="code-instruction">dw</span> <span class="code-label">gdt_end</span> - <span class="code-label">gdt_start</span> - <span class="code-hex">1</span>   <span class="code-comment">; Limit = size - 1</span>
+    <span class="code-instruction">dd</span> <span class="code-label">gdt_start</span>                  <span class="code-comment">; Base address</span>
+
+<span class="code-comment">; Segment selector constants:</span>
+<span class="code-label">CODE_SEG</span>       <span class="code-directive">equ</span> <span class="code-label">gdt_code</span> - <span class="code-label">gdt_start</span>       <span class="code-comment">; 0x08</span>
+<span class="code-label">DATA_SEG</span>       <span class="code-directive">equ</span> <span class="code-label">gdt_data</span> - <span class="code-label">gdt_start</span>       <span class="code-comment">; 0x10</span>
+<span class="code-label">USER_CODE_SEG</span>  <span class="code-directive">equ</span> <span class="code-label">gdt_user_code</span> - <span class="code-label">gdt_start</span>  <span class="code-comment">; 0x18</span>
+<span class="code-label">USER_DATA_SEG</span>  <span class="code-directive">equ</span> <span class="code-label">gdt_user_data</span> - <span class="code-label">gdt_start</span>  <span class="code-comment">; 0x20</span></pre>
+
+<h2 id="ch7-4">7.4 The Switch to Protected Mode</h2>
+<p>The transition requires exact sequencing. Any mistake causes an immediate triple fault and CPU reset.</p>
+
+<pre><span class="code-comment">; Prerequisites checklist:</span>
+<span class="code-comment">; [1] A20 is enabled (verify!)</span>
+<span class="code-comment">; [2] GDT is constructed and GDT descriptor is filled</span>
+<span class="code-comment">; [3] Interrupts are disabled (CLI)</span>
+<span class="code-comment">; [4] A far jump target is prepared in 32-bit code</span>
+
+<span class="code-label">switch_to_protected_mode:</span>
+    <span class="code-instruction">cli</span>                      <span class="code-comment">; [1] Disable interrupts</span>
+    <span class="code-instruction">lgdt</span> [<span class="code-label">gdt_descriptor</span>]    <span class="code-comment">; [2] Load GDT register</span>
+
+    <span class="code-instruction">mov</span> <span class="code-register">eax</span>, <span class="code-register">cr0</span>
+    <span class="code-instruction">or</span> <span class="code-register">eax</span>, <span class="code-hex">0x00000001</span>      <span class="code-comment">; [3] Set PE (Protection Enable) bit</span>
+    <span class="code-instruction">mov</span> <span class="code-register">cr0</span>, <span class="code-register">eax</span>
+
+    <span class="code-comment">; [4] FAR JUMP — this is MANDATORY</span>
+    <span class="code-comment">; The far jump does THREE critical things:</span>
+    <span class="code-comment">;   a) Flushes the CPU instruction pipeline (old 16-bit decode is discarded)</span>
+    <span class="code-comment">;   b) Loads CS with the code segment selector (0x08)</span>
+    <span class="code-comment">;   c) Sets EIP to the offset within that segment</span>
+    <span class="code-instruction">jmp</span> <span class="code-label">CODE_SEG</span>:<span class="code-label">protected_mode_entry</span>
+
+<span class="code-comment">; ══════════════════════════════════════════════════════════════════════════════</span>
+<span class="code-comment">; FROM THIS POINT FORWARD, WE ARE IN 32-BIT PROTECTED MODE</span>
+<span class="code-comment">; ══════════════════════════════════════════════════════════════════════════════</span>
+<span class="code-directive">[BITS 32]</span>
+<span class="code-label">protected_mode_entry:</span>
+    <span class="code-comment">; Set up all data segment registers</span>
+    <span class="code-instruction">mov</span> <span class="code-register">ax</span>, <span class="code-label">DATA_SEG</span>
+    <span class="code-instruction">mov</span> <span class="code-register">ds</span>, <span class="code-register">ax</span>
+    <span class="code-instruction">mov</span> <span class="code-register">es</span>, <span class="code-register">ax</span>
+    <span class="code-instruction">mov</span> <span class="code-register">fs</span>, <span class="code-register">ax</span>
+    <span class="code-instruction">mov</span> <span class="code-register">gs</span>, <span class="code-register">ax</span>
+    <span class="code-instruction">mov</span> <span class="code-register">ss</span>, <span class="code-register">ax</span>
+
+    <span class="code-comment">; Set up 32-bit stack at 0x90000</span>
+    <span class="code-instruction">mov</span> <span class="code-register">ebp</span>, <span class="code-hex">0x90000</span>
+    <span class="code-instruction">mov</span> <span class="code-register">esp</span>, <span class="code-register">ebp</span>
+
+    <span class="code-comment">; Now safe to call 32-bit code!</span>
+    <span class="code-instruction">call</span> <span class="code-label">kernel_main</span>
+
+    <span class="code-comment">; If kernel_main returns, halt forever</span>
+<span class="code-label">.halt:</span>
+    <span class="code-instruction">cli</span>
+    <span class="code-instruction">hlt</span>
+    <span class="code-instruction">jmp</span> <span class="code-label">.halt</span></pre>
+
+<h2 id="ch7-5">7.5 Common Protected Mode Failures</h2>
+<table>
+<thead><tr><th>Symptom</th><th>Cause</th><th>Solution</th></tr></thead>
+<tbody>
+<tr><td>Immediate reboot (triple fault)</td><td>GDT not loaded or invalid descriptor</td><td>Verify GDT is below 1MB during switch. Check LGDT loads correct base+limit.</td></tr>
+<tr><td>Reboot on first data access</td><td>DS/ES/SS not loaded with valid selectors after switch</td><td>Load all segment registers immediately after far jump.</td></tr>
+<tr><td>Wrong data being read/written</td><td>A20 not enabled; GDT above 1MB wraps to 0</td><td>Verify A20 is on. Check with memory test before switching.</td></tr>
+<tr><td>Reboot after enabling paging</td><td>Page directory not identity-mapped for current execution address</td><td>Ensure PD maps the page containing your code before enabling CR0.PG.</td></tr>
+<tr><td>Stack corruption</td><td>SS:ESP not set up before first PUSH/CALL in 32-bit</td><td>Set up stack immediately after entering protected mode.</td></tr>
+<tr><td>Code runs but wrong segment</td><td>Far jump uses wrong selector</td><td>Ensure jmp CODE_SEG:target uses the correct selector value.</td></tr>
+</tbody>
+</table>
+
+<div class="exercise"><div class="exercise-title">Chapter 7 Exercises</div>
+<ol>
+<li><strong>GDT verifier:</strong> Write code that dumps each GDT entry in human-readable form (base, limit, type, DPL, granularity).</li>
+<li><strong>Failed switch handler:</strong> Install a handler for #GP (vector 13) in the IDT that prints diagnostic information before halting.</li>
+<li><strong>Selector validation:</strong> Write a function <code>validate_selector(ax)</code> that checks if the selector points to a valid descriptor in the GDT.</li>
+<li><strong>Flat vs. segmented:</strong> Modify the GDT to use a non-zero base for the data segment (e.g., base=0x100000). Observe how this affects memory accesses.</li>
+</ol>
+</div>
+
+<!-- ═══════════════════════════════════════════════════════════════════════════════ -->
+<!-- CHAPTER 8: 32-BIT KERNEL FOUNDATION                                            -->
+<!-- ═══════════════════════════════════════════════════════════════════════════════ -->
+<h1 id="ch8"><span class="chapter-num">Chapter 8</span><br>32-Bit Kernel Foundation &mdash; Linker Scripts, Stack, BSS</h1>
+<p class="chapter-subtitle">The kernel takes its first breath in protected mode</p>
+
+<h2 id="ch8-1">8.1 Linker Scripts</h2>
+<p>When building a kernel from multiple assembly files, we use a <strong>linker script</strong> to control the exact memory layout. The linker script specifies where each section (.text, .data, .rodata, .bss) is placed in memory, the entry point address, and symbol definitions that our code can reference.</p>
+
+<pre><span class="code-comment">; ═══════════════════════════════════════════════════════════════════════════════</span>
+<span class="code-comment">; kernel.ld — Linker script for our 32-bit kernel</span>
+<span class="code-comment">; ═══════════════════════════════════════════════════════════════════════════════</span>
+<span class="code-label">ENTRY</span>(kernel_main)           <span class="code-comment">; Entry point symbol</span>
+
+<span class="code-label">SECTIONS</span>
+{
+    <span class="code-comment">/* Kernel starts at 1 MB physical */</span>
+    . = <span class="code-hex">0x00100000</span>;
+
+    <span class="code-comment">/* .text section: code, read-only */</span>
+    .text : {
+        *(.text)            <span class="code-comment">/* All .text sections from all object files */</span>
+        *(.text.*)
+    }
+
+    <span class="code-comment">/* .rodata: read-only data (string literals, constants) */</span>
+    .rodata : {
+        *(.rodata)
+        *(.rodata.*)
+    }
+
+    <span class="code-comment">/* .data: initialized read-write data */</span>
+    .data : {
+        *(.data)
+        *(.data.*)
+    }
+
+    <span class="code-comment">/* .bss: uninitialized data — must be zeroed at startup */</span>
+    .bss : {
+        kernel_bss_start = .;
+        *(.bss)
+        *(.bss.*)
+        *(COMMON)           <span class="code-comment">/* Fortran-style common blocks */</span>
+        kernel_bss_end = .;
+    }
+
+    <span class="code-comment">/* Symbol marking end of kernel */</span>
+    kernel_end = .;
+}</pre>
+
+<p>Build the kernel with:</p>
+<pre>nasm -f elf32 kernel_entry.asm -o kernel_entry.o
+nasm -f elf32 kernel_main.asm -o kernel_main.o
+nasm -f elf32 vga.asm -o vga.o
+ld -m elf_i386 -T kernel.ld -o kernel.bin kernel_entry.o kernel_main.o vga.o
+</pre>
+
+<h2 id="ch8-2">8.2 Kernel Entry Assembly</h2>
+<p>The kernel entry point (called by the bootloader) must set up the environment before calling higher-level code.</p>
+
+<pre><span class="code-comment">; ═══════════════════════════════════════════════════════════════════════════════</span>
+<span class="code-comment">; kernel_entry.asm — First code executed in the kernel</span>
+<span class="code-comment">; ═══════════════════════════════════════════════════════════════════════════════</span>
+<span class="code-directive">[BITS 32]</span>
+<span class="code-directive">[EXTERN</span> kernel_main<span class="code-directive">]</span>
+<span class="code-directive">[EXTERN</span> kernel_bss_start<span class="code-directive">]</span>
+<span class="code-directive">[EXTERN</span> kernel_bss_end<span class="code-directive">]</span>
+
+<span class="code-label">KERNEL_STACK_SIZE</span>  <span class="code-directive">equ</span> <span class="code-hex">16384</span>     <span class="code-comment">; 16 KB initial stack</span>
+
+<span class="code-directive">section</span> .text
+<span class="code-instruction">global</span> <span class="code-label">kernel_entry</span>
+
+<span class="code-label">kernel_entry:</span>
+    <span class="code-comment">; ── Clear BSS section ──────────────────────────────────────────────────</span>
+    <span class="code-comment">; BSS must be zeroed before any code uses uninitialized global variables.</span>
+    <span class="code-comment">; We use REP STOSD for maximum speed: 4 bytes per iteration.</span>
+    <span class="code-instruction">mov</span> <span class="code-register">edi</span>, <span class="code-label">kernel_bss_start</span>
+    <span class="code-instruction">mov</span> <span class="code-register">ecx</span>, <span class="code-label">kernel_bss_end</span>
+    <span class="code-instruction">sub</span> <span class="code-register">ecx</span>, <span class="code-label">kernel_bss_start</span>
+    <span class="code-instruction">add</span> <span class="code-register">ecx</span>, <span class="code-hex">3</span>           <span class="code-comment">; Round up to nearest 4</span>
+    <span class="code-instruction">shr</span> <span class="code-register">ecx</span>, <span class="code-hex">2</span>           <span class="code-comment">; ECX = number of dwords</span>
+    <span class="code-instruction">xor</span> <span class="code-register">eax</span>, <span class="code-register">eax</span>         <span class="code-comment">; EAX = 0 (value to store)</span>
+    <span class="code-instruction">cld</span>                  <span class="code-comment">; Forward direction</span>
+    <span class="code-instruction">rep</span> <span class="code-instruction">stosd</span>            <span class="code-comment">; Store ECX zeros starting at EDI</span>
+
+    <span class="code-comment">; ── Set up kernel stack ────────────────────────────────────────────────</span>
+    <span class="code-instruction">mov</span> <span class="code-register">esp</span>, <span class="code-label">kernel_stack_top</span>
+    <span class="code-instruction">mov</span> <span class="code-register">ebp</span>, <span class="code-register">esp</span>         <span class="code-comment">; Initialize frame pointer</span>
+
+    <span class="code-comment">; ── Call main kernel function ──────────────────────────────────────────</span>
+    <span class="code-instruction">call</span> <span class="code-label">kernel_main</span>
+
+    <span class="code-comment">; If kernel_main returns (it should never), halt.</span>
+<span class="code-label">.halt:</span>
+    <span class="code-instruction">cli</span>
+    <span class="code-instruction">hlt</span>
+    <span class="code-instruction">jmp</span> <span class="code-label">.halt</span>
+
+<span class="code-directive">section</span> .bss
+<span class="code-directive">align</span> <span class="code-hex">16</span>
+<span class="code-label">kernel_stack:</span>
+    <span class="code-instruction">resb</span> <span class="code-label">KERNEL_STACK_SIZE</span>
+<span class="code-label">kernel_stack_top:</span></pre>
+
+<h2 id="ch8-3">8.3 Stack Management in the Kernel</h2>
+<p>A proper kernel needs multiple stacks: one for the main kernel thread, one for interrupts, and one per task. The stack is used for: function call return addresses and local variables, interrupt handler context saving, system call parameter passing, and temporary register spill space.</p>
+
+<pre><span class="code-comment">; IRQ stack (used when interrupts occur):</span>
+<span class="code-label">IRQ_STACK_TOP</span>  <span class="code-directive">equ</span> <span class="code-hex">0x80000</span>     <span class="code-comment">; 512 KB area for IRQ handlers</span>
+
+<span class="code-comment">; In an IRQ handler, if we detect we're about to overflow the current stack,</span>
+<span class="code-comment">; we can switch to the dedicated IRQ stack:</span>
+<span class="code-label">irq_common_handler:</span>
+    <span class="code-instruction">cmp</span> <span class="code-register">esp</span>, <span class="code-hex">0x90000</span>    <span class="code-comment">; Are we on the main kernel stack?</span>
+    <span class="code-instruction">jb</span> <span class="code-label">.stack_ok</span>       <span class="code-comment">; If ESP &lt; 0x90000, we're fine</span>
+    <span class="code-instruction">mov</span> <span class="code-register">esp</span>, <span class="code-label">IRQ_STACK_TOP</span>  <span class="code-comment">; Switch to IRQ stack</span>
+<span class="code-label">.stack_ok:</span>
+    <span class="code-instruction">pusha</span>
+    <span class="code-comment">; ... handle interrupt ...</span>
+    <span class="code-instruction">popa</span>
+    <span class="code-instruction">iret</span></pre>
+
+<h2 id="ch8-4">8.4 BSS Clearing: Why and How</h2>
+<p>The <strong>BSS section</strong> contains uninitialized global and static variables. The C standard requires that these be zero-initialized before <code>main()</code> runs. In assembly, we must do this manually. The <code>REP STOSD</code> instruction is the fastest way — it stores 4 bytes per clock cycle on modern CPUs. For a typical kernel BSS of a few KB, this takes microseconds.</p>
+
+<h2 id="ch8-5">8.5 First Kernel Code</h2>
+<pre><span class="code-comment">; ═══════════════════════════════════════════════════════════════════════════════</span>
+<span class="code-comment">; kernel_main.asm — The main kernel body</span>
+<span class="code-comment">; ═══════════════════════════════════════════════════════════════════════════════</span>
+<span class="code-directive">[BITS 32]</span>
+<span class="code-directive">section</span> .text
+<span class="code-instruction">global</span> <span class="code-label">kernel_main</span>
+
+<span class="code-label">VGA_BASE</span>    <span class="code-directive">equ</span> <span class="code-hex">0xB8000</span>
+<span class="code-label">VGA_COLS</span>    <span class="code-directive">equ</span> <span class="code-hex">80</span>
+<span class="code-label">VGA_ROWS</span>    <span class="code-directive">equ</span> <span class="code-hex">25</span>
+<span class="code-label">COLOR_WB</span>    <span class="code-directive">equ</span> <span class="code-hex">0x0F</span>       <span class="code-comment">; White on black</span>
+
+<span class="code-label">kernel_main:</span>
+    <span class="code-instruction">call</span> <span class="code-label">vga_clear</span>
+
+    <span class="code-instruction">mov</span> <span class="code-register">esi</span>, <span class="code-label">msg_banner</span>
+    <span class="code-instruction">mov</span> <span class="code-register">dl</span>, <span class="code-hex">0</span>            <span class="code-comment">; Column 0</span>
+    <span class="code-instruction">mov</span> <span class="code-register">dh</span>, <span class="code-hex">0</span>            <span class="code-comment">; Row 0</span>
+    <span class="code-instruction">mov</span> <span class="code-register">bl</span>, <span class="code-label">COLOR_WB</span>
+    <span class="code-instruction">call</span> <span class="code-label">vga_print</span>
+
+    <span class="code-instruction">mov</span> <span class="code-register">esi</span>, <span class="code-label">msg_cpu</span>
+    <span class="code-instruction">mov</span> <span class="code-register">dl</span>, <span class="code-hex">0</span>
+    <span class="code-instruction">mov</span> <span class="code-register">dh</span>, <span class="code-hex">2</span>
+    <span class="code-instruction">mov</span> <span class="code-register">bl</span>, <span class="code-hex">0x0A</span>         <span class="code-comment">; Green on black</span>
+    <span class="code-instruction">call</span> <span class="code-label">vga_print</span>
+
+    <span class="code-instruction">call</span> <span class="code-label">idt_init</span>
+    <span class="code-instruction">call</span> <span class="code-label">pic_remap</span>
+    <span class="code-instruction">call</span> <span class="code-label">pit_init</span>
+    <span class="code-instruction">sti</span>                  <span class="code-comment">; Enable interrupts</span>
+
+<span class="code-label">.loop:</span>
+    <span class="code-instruction">hlt</span>                  <span class="code-comment">; Wait for next interrupt</span>
+    <span class="code-instruction">jmp</span> <span class="code-label">.loop</span>
+
+<span class="code-directive">section</span> .rodata
+<span class="code-label">msg_banner:</span>  <span class="code-instruction">db</span> <span class="code-hex">"  MyOS v0.1 — 32-bit Protected Mode Kernel  "</span>, <span class="code-hex">0</span>
+<span class="code-label">msg_cpu:</span>     <span class="code-instruction">db</span> <span class="code-hex">"[OK] CPU in Protected Mode, interrupts enabled"</span>, <span class="code-hex">0</span></pre>
+
+<div class="exercise"><div class="exercise-title">Chapter 8 Exercises</div>
+<ol>
+<li><strong>Symbol inspection:</strong> Use <code>nm kernel.bin</code> to examine all symbols generated by the linker. Verify that <code>kernel_bss_start</code> and <code>kernel_bss_end</code> have the expected addresses.</li>
+<li><strong>Stack overflow detection:</strong> Add a guard page (a non-present page) below the kernel stack to catch stack overflows with a page fault.</li>
+<li><strong>Multi-section kernel:</strong> Split your kernel into three files (entry, main, utils) and write a Makefile that properly assembles and links them.</li>
+<li><strong>Kernel info dump:</strong> Write a function that prints the kernel's .text, .data, .rodata, and .bss section addresses and sizes at boot.</li>
+</ol>
+</div>
+
+<!-- ═══════════════════════════════════════════════════════════════════════════════ -->
+<!-- CHAPTER 9: INTERRUPT DESCRIPTOR TABLE                                          -->
+<!-- ═══════════════════════════════════════════════════════════════════════════════ -->
+<h1 id="ch9"><span class="chapter-num">Chapter 9</span><br>The Interrupt Descriptor Table &mdash; Gates, Exceptions, Handlers</h1>
+<p class="chapter-subtitle">Teaching the CPU how to respond to interrupts and exceptions</p>
+
+<h2 id="ch9-1">9.1 IDT Architecture</h2>
+<p>In Protected Mode, the old Real Mode Interrupt Vector Table (IVT) is replaced by the <strong>Interrupt Descriptor Table (IDT)</strong>. The IDT can contain up to 256 entries, each 8 bytes (or 16 bytes for 64-bit), describing the handler for each interrupt vector. The CPU references the IDT through the <strong>IDTR</strong> register, loaded with the <code>LIDT</code> instruction.</p>
+
+<pre><span class="code-comment">; IDT Entry (8 bytes):</span>
+<span class="code-comment">;</span>
+<span class="code-comment">;  Bits: 63          48 47     40 39 32 31      16 15        0</span>
+<span class="code-comment">;       +--------------+--------+------+----------+-----------+</span>
+<span class="code-comment">;       │Offset [31:16]│  Flags │ Zero │ Selector │Offset[15:0]│</span>
+<span class="code-comment">;       +--------------+--------+------+----------+-----------+</span>
+<span class="code-comment">;</span>
+<span class="code-comment">;  Selector: Code segment selector (0x08 for our kernel code)</span>
+<span class="code-comment">;  Flags byte: P(1) | DPL(2) | 0 | Gate Type(4)</span>
+<span class="code-comment">;    P = Present (must be 1)</span>
+<span class="code-comment">;    DPL = Descriptor Privilege Level (0 for kernel-only, 3 for user-accessible)</span>
+<span class="code-comment">;    Gate Type: 0xE = 32-bit Interrupt Gate, 0xF = 32-bit Trap Gate</span>
+<span class="code-comment">;
+; Interrupt Gate (0x8E): Clears IF on entry (prevents nested IRQs automatically)</span>
+<span class="code-comment">; Trap Gate (0x8F): Does NOT clear IF (used for debugging, allows nested interrupts)</span></pre>
+
+<h2 id="ch9-2">9.2 Gate Types</h2>
+<table>
+<thead><tr><th>Type</th><th>Hex</th><th>IF on Entry</th><th>Use Case</th></tr></thead>
+<tbody>
+<tr><td>Interrupt Gate (32-bit)</td><td>0x8E</td><td>Cleared</td><td>Hardware IRQs, most exceptions. Prevents interrupt nesting.</td></tr>
+<tr><td>Trap Gate (32-bit)</td><td>0x8F</td><td>Unchanged</td><td>Debug exceptions, system calls where nesting is desired.</td></tr>
+<tr><td>Task Gate</td><td>0x85</td><td>N/A</td><td>Hardware task switching (rarely used in modern OSes).</td></tr>
+</tbody>
+</table>
+
+<h2 id="ch9-3">9.3 CPU Exceptions (Vectors 0-31)</h2>
+<table>
+<thead><tr><th>Vector</th><th>Name</th><th>Description</th><th>Error Code?</th></tr></thead>
+<tbody>
+<tr><td>0</td><td>#DE Divide Error</td><td>DIV/IDIV by zero or result too large</td><td>No</td></tr>
+<tr><td>1</td><td>#DB Debug</td><td>TF=1, hardware breakpoint, or ICE</td><td>No</td></tr>
+<tr><td>2</td><td>NMI</td><td>Non-Maskable Interrupt</td><td>No</td></tr>
+<tr><td>3</td><td>#BP Breakpoint</td><td>INT 3 instruction</td><td>No</td></tr>
+<tr><td>4</td><td>#OF Overflow</td><td>INTO with OF=1</td><td>No</td></tr>
+<tr><td>5</td><td>#BR Bound Range</td><td>BOUND out of range</td><td>No</td></tr>
+<tr><td>6</td><td>#UD Invalid Opcode</td><td>Undefined instruction</td><td>No</td></tr>
+<tr><td>7</td><td>#NM Device N/A</td><td>FPU instruction with no FPU</td><td>No</td></tr>
+<tr><td>8</td><td>#DF Double Fault</td><td>Exception during exception handling</td><td>Yes (always 0)</td></tr>
+<tr><td>10</td><td>#TS Invalid TSS</td><td>Bad TSS segment selector</td><td>Yes</td></tr>
+<tr><td>11</td><td>#NP Segment N/P</td><td>Segment not present</td><td>Yes</td></tr>
+<tr><td>12</td><td>#SS Stack Fault</td><td>Stack segment error</td><td>Yes</td></tr>
+<tr><td>13</td><td>#GP General Protection</td><td>Any protection violation</td><td>Yes</td></tr>
+<tr><td>14</td><td>#PF Page Fault</td><td>Memory access violation</td><td>Yes</td></tr>
+<tr><td>16</td><td>#MF x87 FPU Error</td><td>FPU floating point error</td><td>No</td></tr>
+<tr><td>17</td><td>#AC Alignment Check</td><td>Unaligned memory access</td><td>Yes</td></tr>
+<tr><td>18</td><td>#MC Machine Check</td><td>Hardware error</td><td>No</td></tr>
+<tr><td>19</td><td>#XF SIMD Exception</td><td>SSE floating point error</td><td>No</td></tr>
+</tbody>
+</table>
+
+<h2 id="ch9-4">9.4 Installing IDT Entries</h2>
+<pre><span class="code-directive">section</span> .bss
+<span class="code-directive">align</span> <span class="code-hex">8</span>
+<span class="code-label">idt_entries:</span>    <span class="code-instruction">resb</span> <span class="code-hex">256</span> * <span class="code-hex">8</span>     <span class="code-comment">; 256 entries × 8 bytes</span>
+
+<span class="code-directive">section</span> .data
+<span class="code-label">idt_descriptor:</span>
+    <span class="code-instruction">dw</span> <span class="code-hex">256</span> * <span class="code-hex">8</span> - <span class="code-hex">1</span>         <span class="code-comment">; Limit</span>
+    <span class="code-instruction">dd</span> <span class="code-label">idt_entries</span>         <span class="code-comment">; Base</span>
+
+<span class="code-directive">section</span> .text
+<span class="code-comment">; idt_set_gate: Install a handler in the IDT</span>
+<span class="code-comment">; Input: AL = vector number, EBX = handler address</span>
+<span class="code-label">idt_set_gate:</span>
+    <span class="code-instruction">pusha</span>
+    <span class="code-instruction">movzx</span> <span class="code-register">eax</span>, <span class="code-register">al</span>       <span class="code-comment">; Zero-extend vector to EAX</span>
+    <span class="code-instruction">shl</span> <span class="code-register">eax</span>, <span class="code-hex">3</span>           <span class="code-comment">; Multiply by 8 (bytes per entry)</span>
+    <span class="code-instruction">mov</span> <span class="code-register">edi</span>, <span class="code-label">idt_entries</span>
+    <span class="code-instruction">add</span> <span class="code-register">edi</span>, <span class="code-register">eax</span>         <span class="code-comment">; EDI = &amp;idt_entries[vector]</span>
+
+    <span class="code-instruction">mov</span> <span class="code-register">ax</span>, <span class="code-register">bx</span>
+    <span class="code-instruction">mov</span> [<span class="code-register">edi</span>], <span class="code-register">ax</span>       <span class="code-comment">; Offset [15:0]</span>
+    <span class="code-instruction">mov</span> <span class="code-register">ax</span>, <span class="code-hex">0x08</span>         <span class="code-comment">; Kernel code segment selector</span>
+    <span class="code-instruction">mov</span> [<span class="code-register">edi</span>+<span class="code-hex">2</span>], <span class="code-register">ax</span>     <span class="code-comment">; Selector</span>
+    <span class="code-instruction">mov</span> <span class="code-register">byte</span> [<span class="code-register">edi</span>+<span class="code-hex">4</span>], <span class="code-hex">0</span>  <span class="code-comment">; Reserved (zero)</span>
+    <span class="code-instruction">mov</span> <span class="code-register">byte</span> [<span class="code-register">edi</span>+<span class="code-hex">5</span>], <span class="code-hex">0x8E</span>  <span class="code-comment">; Flags: Present, DPL=0, Interrupt Gate</span>
+    <span class="code-instruction">shr</span> <span class="code-register">ebx</span>, <span class="code-hex">16</span>
+    <span class="code-instruction">mov</span> [<span class="code-register">edi</span>+<span class="code-hex">6</span>], <span class="code-register">bx</span>     <span class="code-comment">; Offset [31:16]</span>
+
+    <span class="code-instruction">popa</span>
+    <span class="code-instruction">ret</span></pre>
+
+<h2 id="ch9-5">9.5 Handling Exceptions with Error Codes</h2>
+<p>Some exceptions push an additional <strong>error code</strong> onto the stack. Your handler must account for this.</p>
+
+<pre><span class="code-comment">; Exception handler template (NO error code):</span>
+<span class="code-label">isr_divide_by_zero:</span>
+    <span class="code-instruction">push</span> <span class="code-register">dword</span> <span class="code-hex">0</span>         <span class="code-comment">; Push dummy error code for uniform handling</span>
+    <span class="code-instruction">push</span> <span class="code-register">dword</span> <span class="code-hex">0</span>         <span class="code-comment">; Push vector number</span>
+    <span class="code-instruction">jmp</span> <span class="code-label">isr_common</span>
+
+<span class="code-comment">; Exception handler template (WITH error code — CPU pushes it automatically):</span>
+<span class="code-label">isr_general_protection:</span>
+    <span class="code-instruction">push</span> <span class="code-register">dword</span> <span class="code-hex">13</span>        <span class="code-comment">; Push vector number (error code already on stack)</span>
+    <span class="code-instruction">jmp</span> <span class="code-label">isr_common</span>
+
+<span class="code-comment">; Common handler:</span>
+<span class="code-label">isr_common:</span>
+    <span class="code-instruction">pusha</span>
+    <span class="code-instruction">mov</span> <span class="code-register">ax</span>, <span class="code-register">ds</span>
+    <span class="code-instruction">push</span> <span class="code-register">eax</span>
+    <span class="code-instruction">mov</span> <span class="code-register">ax</span>, <span class="code-hex">0x10</span>         <span class="code-comment">; Kernel data segment</span>
+    <span class="code-instruction">mov</span> <span class="code-register">ds</span>, <span class="code-register">ax</span>
+    <span class="code-instruction">mov</span> <span class="code-register">es</span>, <span class="code-register">ax</span>
+    <span class="code-instruction">mov</span> <span class="code-register">fs</span>, <span class="code-register">ax</span>
+    <span class="code-instruction">mov</span> <span class="code-register">gs</span>, <span class="code-register">ax</span>
+
+    <span class="code-instruction">mov</span> <span class="code-register">ebp</span>, <span class="code-register">esp</span>
+    <span class="code-instruction">push</span> <span class="code-register">ebp</span>            <span class="code-comment">; Pass stack frame to C/asm handler</span>
+    <span class="code-instruction">call</span> <span class="code-label">exception_handler</span>
+    <span class="code-instruction">add</span> <span class="code-register">esp</span>, <span class="code-hex">4</span>
+
+    <span class="code-instruction">pop</span> <span class="code-register">eax</span>
+    <span class="code-instruction">mov</span> <span class="code-register">ds</span>, <span class="code-register">ax</span>
+    <span class="code-instruction">mov</span> <span class="code-register">es</span>, <span class="code-register">ax</span>
+    <span class="code-instruction">mov</span> <span class="code-register">fs</span>, <span class="code-register">ax</span>
+    <span class="code-instruction">mov</span> <span class="code-register">gs</span>, <span class="code-register">ax</span>
+    <span class="code-instruction">popa</span>
+    <span class="code-instruction">add</span> <span class="code-register">esp</span>, <span class="code-hex">8</span>           <span class="code-comment">; Remove error code and vector number</span>
+    <span class="code-instruction">iret</span></pre>
+
+<!-- ═══════════════════════════════════════════════════════════════════════════════ -->
+<!-- CHAPTER 10: THE 8259A PIC                                                      -->
+<!-- ═══════════════════════════════════════════════════════════════════════════════ -->
+<h1 id="ch10"><span class="chapter-num">Chapter 10</span><br>The 8259A PIC &amp; Hardware IRQ Handling</h1>
+<p class="chapter-subtitle">Remapping hardware interrupts: from IRQ to IDT vector</p>
+
+<h2 id="ch10-1">10.1 PIC Architecture</h2>
+<p>The <strong>Intel 8259A Programmable Interrupt Controller (PIC)</strong> manages hardware interrupts. There are two cascaded PIC chips: the <strong>Master</strong> (IRQ0-IRQ7) and the <strong>Slave</strong> (IRQ8-IRQ15). The slave is connected to the master's IRQ2 line. When a device signals an interrupt, the PIC translates it into a CPU interrupt vector.</p>
+
+<p>By default, the PIC maps IRQ0 to vector 8, IRQ1 to vector 9, and so on. This <strong>conflicts</strong> with CPU exception vectors 8-15! We must remap the PIC so that IRQs use vectors 32-47 (0x20-0x2F).</p>
+
+<h2 id="ch10-2">10.2 Remapping the PIC</h2>
+<pre><span class="code-label">PIC1_CMD</span>   <span class="code-directive">equ</span> <span class="code-hex">0x20</span>        <span class="code-comment">; Master command port</span>
+<span class="code-label">PIC1_DATA</span>  <span class="code-directive">equ</span> <span class="code-hex">0x21</span>        <span class="code-comment">; Master data port</span>
+<span class="code-label">PIC2_CMD</span>   <span class="code-directive">equ</span> <span class="code-hex">0xA0</span>        <span class="code-comment">; Slave command port</span>
+<span class="code-label">PIC2_DATA</span>  <span class="code-directive">equ</span> <span class="code-hex">0xA1</span>        <span class="code-comment">; Slave data port</span>
+<span class="code-label">PIC_EOI</span>    <span class="code-directive">equ</span> <span class="code-hex">0x20</span>        <span class="code-comment">; End-of-Interrupt command</span>
+
+<span class="code-label">ICW1_INIT</span>  <span class="code-directive">equ</span> <span class="code-hex">0x11</span>        <span class="code-comment">; Initialize + expect ICW4</span>
+<span class="code-label">ICW4_8086</span>  <span class="code-directive">equ</span> <span class="code-hex">0x01</span>        <span class="code-comment">; 8086 mode (not 8080/85)</span>
+
+<span class="code-label">pic_remap:</span>
+    <span class="code-instruction">pusha</span>
+
+    <span class="code-comment">; Save masks</span>
+    <span class="code-instruction">in</span> <span class="code-register">al</span>, <span class="code-label">PIC1_DATA</span>
+    <span class="code-instruction">push</span> <span class="code-register">eax</span>
+    <span class="code-instruction">in</span> <span class="code-register">al</span>, <span class="code-label">PIC2_DATA</span>
+    <span class="code-instruction">push</span> <span class="code-register">eax</span>
+
+    <span class="code-comment">; ICW1: Start initialization sequence</span>
+    <span class="code-instruction">mov</span> <span class="code-register">al</span>, <span class="code-label">ICW1_INIT</span>
+    <span class="code-instruction">out</span> <span class="code-label">PIC1_CMD</span>, <span class="code-register">al</span>
+    <span class="code-instruction">call</span> <span class="code-label">io_wait</span>
+    <span class="code-instruction">out</span> <span class="code-label">PIC2_CMD</span>, <span class="code-register">al</span>
+    <span class="code-instruction">call</span> <span class="code-label">io_wait</span>
+
+    <span class="code-comment">; ICW2: Vector offsets</span>
+    <span class="code-instruction">mov</span> <span class="code-register">al</span>, <span class="code-hex">0x20</span>         <span class="code-comment">; Master: vectors 0x20-0x27 (32-39)</span>
+    <span class="code-instruction">out</span> <span class="code-label">PIC1_DATA</span>, <span class="code-register">al</span>
+    <span class="code-instruction">call</span> <span class="code-label">io_wait</span>
+    <span class="code-instruction">mov</span> <span class="code-register">al</span>, <span class="code-hex">0x28</span>         <span class="code-comment">; Slave: vectors 0x28-0x2F (40-47)</span>
+    <span class="code-instruction">out</span> <span class="code-label">PIC2_DATA</span>, <span class="code-register">al</span>
+    <span class="code-instruction">call</span> <span class="code-label">io_wait</span>
+
+    <span class="code-comment">; ICW3: Cascade configuration</span>
+    <span class="code-instruction">mov</span> <span class="code-register">al</span>, <span class="code-hex">0x04</span>         <span class="code-comment">; Master: slave connected to IRQ2 (bit 2)</span>
+    <span class="code-instruction">out</span> <span class="code-label">PIC1_DATA</span>, <span class="code-register">al</span>
+    <span class="code-instruction">call</span> <span class="code-label">io_wait</span>
+    <span class="code-instruction">mov</span> <span class="code-register">al</span>, <span class="code-hex">0x02</span>         <span class="code-comment">; Slave: cascade identity = 2</span>
+    <span class="code-instruction">out</span> <span class="code-label">PIC2_DATA</span>, <span class="code-register">al</span>
+    <span class="code-instruction">call</span> <span class="code-label">io_wait</span>
+
+    <span class="code-comment">; ICW4: 8086 mode</span>
+    <span class="code-instruction">mov</span> <span class="code-register">al</span>, <span class="code-label">ICW4_8086</span>
+    <span class="code-instruction">out</span> <span class="code-label">PIC1_DATA</span>, <span class="code-register">al</span>
+    <span class="code-instruction">call</span> <span class="code-label">io_wait</span>
+    <span class="code-instruction">out</span> <span class="code-label">PIC2_DATA</span>, <span class="code-register">al</span>
+    <span class="code-instruction">call</span> <span class="code-label">io_wait</span>
+
+    <span class="code-comment">; Restore saved masks</span>
+    <span class="code-instruction">pop</span> <span class="code-register">eax</span>
+    <span class="code-instruction">out</span> <span class="code-label">PIC2_DATA</span>, <span class="code-register">al</span>
+    <span class="code-instruction">pop</span> <span class="code-register">eax</span>
+    <span class="code-instruction">out</span> <span class="code-label">PIC1_DATA</span>, <span class="code-register">al</span>
+
+    <span class="code-instruction">popa</span>
+    <span class="code-instruction">ret</span>
+
+<span class="code-label">io_wait:</span>
+    <span class="code-instruction">jmp</span> <span class="code-hex">$+2</span>
+    <span class="code-instruction">jmp</span> <span class="code-hex">$+2</span>
+    <span class="code-instruction">jmp</span> <span class="code-hex">$+2</span>
+    <span class="code-instruction">ret</span></pre>
+
+<h2 id="ch10-3">10.3 End of Interrupt (EOI)</h2>
+<p>After handling an IRQ, you must send an <strong>EOI</strong> command to the PIC. Failure to do so will prevent future interrupts from that source.</p>
+
+<pre><span class="code-comment">; Send EOI for IRQ0-IRQ7:</span>
+<span class="code-instruction">mov</span> <span class="code-register">al</span>, <span class="code-label">PIC_EOI</span>
+<span class="code-instruction">out</span> <span class="code-label">PIC1_CMD</span>, <span class="code-register">al</span>
+
+<span class="code-comment">; Send EOI for IRQ8-IRQ15 (must send to BOTH!):</span>
+<span class="code-instruction">mov</span> <span class="code-register">al</span>, <span class="code-label">PIC_EOI</span>
+<span class="code-instruction">out</span> <span class="code-label">PIC2_CMD</span>, <span class="code-register">al</span>       <span class="code-comment">; Send to slave first</span>
+<span class="code-instruction">out</span> <span class="code-label">PIC1_CMD</span>, <span class="code-register">al</span>       <span class="code-comment">; Then to master</span></pre>
+
+<h2 id="ch10-4">10.4 PIC Cascading Explained</h2>
+<p>The master PIC has 8 IRQ lines (0-7). IRQ2 is not connected to a device directly — instead, it connects to the slave PIC. This "cascade" allows the system to support 15 total IRQs (IRQ0-IRQ15, with IRQ2 being reserved for the cascade). When the slave PIC receives an interrupt (IRQ8-IRQ15), it signals the master through IRQ2. The master then generates a single interrupt to the CPU. This is why we must send EOI to both PICs for IRQ8-IRQ15.</p>
+
+<h2 id="ch10-5">10.5 Complete IRQ Handler Template</h2>
+<pre><span class="code-comment">; Generic IRQ handler macro</span>
+<span class="code-directive">%macro</span> <span class="code-label">irq_handler</span> <span class="code-hex">2</span>     <span class="code-comment">; %1 = IRQ number, %2 = vector number</span>
+<span class="code-instruction">global</span> <span class="code-label">irq%1</span>
+<span class="code-label">irq%1:</span>
+    <span class="code-instruction">pusha</span>
+    <span class="code-instruction">mov</span> <span class="code-register">ax</span>, <span class="code-hex">0x10</span>
+    <span class="code-instruction">mov</span> <span class="code-register">ds</span>, <span class="code-register">ax</span>
+    <span class="code-instruction">mov</span> <span class="code-register">es</span>, <span class="code-register">ax</span>
+
+    <span class="code-instruction">push</span> <span class="code-register">dword</span> %<span class="code-hex">1</span>        <span class="code-comment">; Pass IRQ number</span>
+    <span class="code-instruction">call</span> <span class="code-label">handle_irq</span>
+    <span class="code-instruction">add</span> <span class="code-register">esp</span>, <span class="code-hex">4</span>
+
+    <span class="code-instruction">popa</span>
+    <span class="code-instruction">iret</span>
+<span class="code-directive">%endmacro</span>
+
+<span class="code-comment">; Generate handlers for all 16 IRQs:</span>
+<span class="code-directive">%assign</span> i <span class="code-hex">0</span>
+<span class="code-directive">%rep</span> <span class="code-hex">16</span>
+    irq_handler i, (i+<span class="code-hex">0x20</span>)
+    <span class="code-directive">%assign</span> i i+<span class="code-hex">1</span>
+<span class="code-directive">%endrep</span>
+
+<span class="code-comment">; Register all handlers in the IDT:</span>
+<span class="code-label">register_irq_handlers:</span>
+    <span class="code-instruction">pusha</span>
+    <span class="code-directive">%assign</span> i <span class="code-hex">0</span>
+    <span class="code-directive">%rep</span> <span class="code-hex">16</span>
+        <span class="code-instruction">mov</span> <span class="code-register">al</span>, i + <span class="code-hex">0x20</span>
+        <span class="code-instruction">mov</span> <span class="code-register">ebx</span>, irq%<span class="code-hex">+i</span>
+        <span class="code-instruction">call</span> <span class="code-label">idt_set_gate</span>
+        <span class="code-directive">%assign</span> i i+<span class="code-hex">1</span>
+    <span class="code-directive">%endrep</span>
+    <span class="code-instruction">popa</span>
+    <span class="code-instruction">ret</span></pre>
+
+<div class="exercise"><div class="exercise-title">Chapter 9-10 Exercises</div>
+<ol>
+<li><strong>Exception tracer:</strong> Write an exception handler that prints the vector number, error code, and all register values (from the stack frame) before halting.</li>
+<li><strong>IRQ counter:</strong> Write handlers for IRQ0 (timer) and IRQ1 (keyboard) that increment separate counters displayed on screen.</li>
+<li><strong>PIC mask control:</strong> Write functions <code>irq_mask(uint8_t irq)</code> and <code>irq_unmask(uint8_t irq)</code> that control individual IRQ lines.</li>
+<li><strong>Spurious IRQ:</strong> Research and handle "spurious IRQ7" and "spurious IRQ15" — what causes them and how to detect them?</li>
+</ol>
+</div>
+
+<!-- ═══════════════════════════════════════════════════════════════════════════════ -->
+<!-- PART III: INTERRUPTS, DEVICES & DRIVERS                                        -->
+<!-- ═══════════════════════════════════════════════════════════════════════════════ -->
+<h1 id="part3" style="page-break-before:always; text-align:center; border:none; font-size:26pt; color:#0d1b2a; margin-top:30%;">Part III<br><span style="font-size:18pt; color:#1565c0;">Interrupts, Devices &amp; Drivers</span></h1>
+
